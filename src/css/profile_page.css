@@ -1,0 +1,181 @@
+/* Profile page scoped styles */
+.profile-wrap {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.profile-card {
+  width: 360px;
+  max-width: 100%;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .06);
+  margin-bottom: 16px;
+}
+
+@media (max-width: 640px) {
+  .profile-card {
+    width: 100%;
+  }
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.user-row .meta .name {
+  font-weight: 700;
+  color: #111827;
+  font-size: 18px;
+}
+
+.user-row .meta .email {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.user-row .meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.credits-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.credits-inline label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.credits-inline input {
+  height: 28px;
+  line-height: 28px;
+  padding: 2px 8px;
+  font-size: 14px;
+  width: 160px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  color: #111827;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.history-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 8px 0 0;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .06);
+}
+
+.hist-more {
+  padding: 12px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.history-title {
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
+.history-note {
+  color: #6b7280;
+  font-size: 12px;
+  margin: 0;
+}
+
+.history-table-wrap {
+  overflow: auto;
+}
+
+table.history {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.history th,
+table.history td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+table.history th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+}
+
+.amt-pos {
+  color: #065f46;
+  font-weight: 700;
+}
+
+.amt-neg {
+  color: #991b1b;
+  font-weight: 700;
+}
+
+/* Tighter spacing below fixed header on this page */
+.hdr-spacer {
+  height: 5px !important;
+}
+
+/* Top-align items in Gradio rows so card and textbox align */
+.gr-row {
+  align-items: flex-start !important;
+}
+
+/* Reduce default Gradio top padding/margins on this page */
+.gradio-container {
+  padding-top: 0 !important;
+}
+
+.gradio-container .gr-block,
+.gradio-container .gr-row,
+.gradio-container .gap {
+  margin-top: 0 !important;
+}
+
+.gradio-container .gr-row:first-of-type {
+  margin-top: 0 !important;
+}
+
+/* Page-specific tweaks */
+#profile-top-row {
+  align-items: flex-start !important;
+}
+
+#profile-user {
+  margin-top: -8px !important;
+}

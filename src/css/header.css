@@ -1,0 +1,147 @@
+/*set some variables*/
+:root {
+	--profile-button-height: 32px;
+}
+
+
+/*Makes header occupy whole top part*/
+.hdr-wrap {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	/* Keep header and its dropdowns above app content */
+	z-index: 9999;
+}
+
+.hdr {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;/* left and right separated */
+	padding: .75rem 1rem; /*vertical size of header*/
+	background-color: #3fae71; /* header background color */
+}
+
+/*aligns profile button*/
+.nav { 
+	display: flex;
+	align-items: center;
+}
+/* credits next to profile with a tiny gap */
+.nav-tight {
+	gap: 12px;
+}
+.nav-tight > * { margin: 0 !important;
+ }
+/* credits iframe */ 
+.credits-frame {
+	/* Somehow relates to header height */
+		height: 36px;
+	/* Important so that the credits section will next to profile button will be overridden by JS onload */
+	width: 1px;
+}
+/*puts distance from the header to the gradio app*/
+.hdr-spacer { height: 56px;
+ }
+
+/*************************/
+/* Google sign-in button */
+/*************************/
+
+.google-btn-pill {
+	display: inline-flex;
+	align-items: center;
+	background-color: #fff;
+	border: 1px solid #dadce0;
+	border-radius: 999px;
+	height: 40px;
+	padding: 0 16px 0 0;
+}
+.google-btn-pill:hover {
+	background-color: #f7f8f8;
+	box-shadow: 0 1px 2px rgba(0,0,0,.1);
+}
+.google-btn-pill, .google-btn-pill:hover { 
+	text-decoration: none !important;
+}
+.google-icon-wrapper { display: inline-flex;
+	align-items: center;
+	padding: 0 12px 0 16px;
+}
+
+/******************/
+/* Profile button */
+/******************/
+
+.account-menu { 
+	position: relative; /*separates the profile dropdown menu from the right wall*/
+}
+
+.account-menu > summary { 
+	list-style: none;/*Necessary for the profile button to display correctly*/
+ }
+.avatar-img {
+	width: var(--profile-button-height);/*It´s a circle so only width matters*/
+	border-radius: 50%;
+	border: 1px solid rgba(255,255,255,0.6);
+}
+
+/* Dropdown */
+.account-dropdown {
+	position: absolute;
+	right: 0;
+	margin-top: 8px;
+	background: #fff;
+	border: 1px solid #e5e7eb;
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgba(0,0,0,.15);
+}
+.account-info { /*Also important so that the dropdown is pretty*/
+	padding: 12px 16px;
+	border-bottom: 1px solid #eee;	
+}
+
+.account-name { 
+	font-weight: 600;
+	color: #111;
+ }
+.account-email { 
+	font-size: 12px;
+	color: #666;
+ }
+
+ /*Dropdown css for links*/
+.account-dropdown a {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    color: #111 !important;
+    text-decoration: none !important;
+}
+
+/* Left area + protected link */
+.hdr-left {
+    display: flex;
+    align-items: center;
+}
+.hdr-link {
+    color: #fff !important;
+    font-weight: 600;
+    /* Nudge towards the center on wide screens */
+    margin-left: 10vw;
+}
+.hdr-link:hover { text-decoration: underline; }
+
+
+.site-logo .logo-svg {
+    width: 28px;
+    height: 28px;
+}
+.site-logo:hover { opacity: .9; }
+
+/* Remove default Gradio footer across apps */
+.gradio-container footer,
+footer {
+    display: none !important;
+}

@@ -1,0 +1,77 @@
+:root {
+	--credits-button-height: 32px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font-family: system-ui;
+  color: white; /* match header */
+}
+
+.credits-wrap {
+  display: inline-flex;      
+  align-items: center;
+  gap: .35rem;
+  min-height: var(--credits-button-height);
+  transform: translateY(2px);   /* 👈 nudge the entire credits block down */
+}
+
+.pill, .buybtn {
+  box-sizing: border-box;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .2rem;
+  padding: 0 .6rem;
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: 999px;
+  font-size: .9rem;
+  line-height: 1.1;
+  height: var(--credits-button-height);
+  color: white;
+}
+
+.pill strong {
+  line-height: 1;
+}
+
+.buybtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--credits-button-height);
+  height: var(--credits-button-height);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 1rem;
+  line-height: 1;
+  color: white;
+}
+
+.buybtn::before {
+  content: "+";
+  position: relative;
+  top: -1px;     /* keep + vertically centered */
+}
+
+.buybtn:hover {
+  background: rgba(255,255,255,0.15);
+}
+
+/* Emoji alignment fix */
+.pill .icon {
+  display: revert;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  transform: translateY(-1px);  /* lift emoji slightly */
+}
