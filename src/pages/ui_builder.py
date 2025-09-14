@@ -129,7 +129,7 @@ def make_builder_app() -> gr.Blocks:
                   <button id='btn-cancel-create' class='btn'>Cancel</button>
                 </div>
               </div>
-                <div class='workspace mode-select' id='workspace'>
+                <div class='workspace mode-draw' id='workspace'>
                   <div class='hint' id='workspace-hint'>Select an API from the left or create a new one.</div>
                   <div class='stage' id='stage' style='display:none;'>
                     <img id='workspace-img' src='' alt='document' />
@@ -423,7 +423,7 @@ def make_builder_app() -> gr.Blocks:
               // Toolbar
               modeSelect.onclick = () => setMode('select');
               modeDraw.onclick = () => setMode('draw');
-              setMode('select');
+              setMode('draw');
 
               zoomRange.oninput = () => {
                 const v = Math.max(20, Math.min(300, +zoomRange.value || 100));
