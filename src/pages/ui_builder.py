@@ -39,6 +39,9 @@ def make_builder_app() -> gr.Blocks:
               .toolbar { display:flex; align-items:center; gap: 10px; margin: 8px 0 12px; flex-wrap: wrap; }
               .mode-btn { padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 8px; background:#fff; cursor:pointer; }
               .mode-btn.active { background: #eff6ff; border-color:#93c5fd; }
+              .mode-btn.icon { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; padding:0; }
+              .mode-btn.icon svg { width:18px; height:18px; stroke:#374151; fill:none; stroke-width:2; }
+              .mode-btn.active.icon svg { stroke:#1d4ed8; }
               .api-title { flex: 1; min-width: 220px; padding:8px; border:1px solid #d1d5db; border-radius:8px; }
               .zoom-wrap { display:flex; align-items:center; gap:6px; }
               .zoom-range { width: 180px; }
@@ -104,8 +107,17 @@ def make_builder_app() -> gr.Blocks:
             <div id='center'>
               <div class='toolbar'>
                 <input id='api-title' class='api-title' type='text' placeholder='API name' />
-                <button id='mode-select' class='mode-btn active' data-mode='select'>Select</button>
-                <button id='mode-draw' class='mode-btn' data-mode='draw'>Draw</button>
+                <button id='mode-select' class='mode-btn icon active' data-mode='select' title='Select' aria-label='Select'>
+                  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 3l7 14 2-6 6-2-15-6z"></path>
+                  </svg>
+                </button>
+                <button id='mode-draw' class='mode-btn icon' data-mode='draw' title='Draw' aria-label='Draw'>
+                  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+                  </svg>
+                </button>
                 <span class='zoom-wrap'>Zoom <input id='zoom-range' class='zoom-range' type='range' min='20' max='300' value='100' /> <span id='zoom-label'>100%</span></span>
                 <button id='btn-save' class='save-btn' disabled>Save</button>
               </div>
