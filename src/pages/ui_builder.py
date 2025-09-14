@@ -289,7 +289,12 @@ def make_builder_app() -> gr.Blocks:
               const btnUndo = document.getElementById('btn-undo');
               const btnRedo = document.getElementById('btn-redo');
 
-              function markDirty(d=true){ state.dirty=!!d; btnSave.disabled = !state.dirty || !state.selected; }
+              function markDirty(d=true){
+                state.dirty = !!d;
+                const cur = state.apis.find(a=>a.id===state.selected);
+                const isPending = !!(cur && cur.pending);
+                btnSave.disabled = !state.dirty || !state.selected || isPending;
+              }
 
               // --- Simple history (rectangles only)
               const history = { undo: [], redo: [] };
@@ -535,17 +540,18 @@ def make_builder_app() -> gr.Blocks:
                 hint.style.display = 'none';
                 stage.style.display = 'block';
                 img.src = doc.image_url;
-                // Wait image load to set sizes
+                // Wait image load to set sizes without altering user zoom
                 await new Promise((res) => { if (img.complete) res(); else img.onload = res; });
                 state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
-                // Reset zoom to fit container
-                try {
-                  const wrap = document.getElementById('workspace');
-                  const pad = 24;
-                  const fit = Math.min( (wrap.clientWidth - pad) / state.img.naturalW, (wrap.clientHeight - pad) / state.img.naturalH ) || 1;
-                  const pct = Math.max(0.2, Math.min(3, fit));
-                  state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
-                } catch {}
+                if (!state._hasInteracted) {
+                  try {
+                    const wrap = document.getElementById('workspace');
+                    const pad = 24;
+                    const fit = Math.min( (wrap.clientWidth - pad) / state.img.naturalW, (wrap.clientHeight - pad) / state.img.naturalH ) || 1;
+                    const pct = Math.max(0.2, Math.min(3, fit));
+                    state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
+                  } catch {}
+                }
                 centerStage();
                 renderRects();
                 selectRect('');
@@ -553,6 +559,22 @@ def make_builder_app() -> gr.Blocks:
                 // Seed history so Undo works from first edit
                 try { history.undo = []; history.redo = []; history.undo.push(cloneRects()); } catch {}
                 renderList();
+              }
+
+              async function initFromCurrentImage({fit=true}={}){
+                await new Promise((res) => { if (img.complete) res(); else img.onload = res; });
+                state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
+                if (fit) {
+                  try {
+                    const wrap = document.getElementById('workspace');
+                    const pad = 24;
+                    const fitZ = Math.min( (wrap.clientWidth - pad) / state.img.naturalW, (wrap.clientHeight - pad) / state.img.naturalH ) || 1;
+                    const pct = Math.max(0.2, Math.min(3, fitZ));
+                    state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
+                  } catch {}
+                }
+                centerStage();
+                renderRects();
               }
 
               // Toolbar
@@ -853,15 +875,17 @@ def make_builder_app() -> gr.Blocks:
                   img.src = localURL;
                 } catch {}
 
-                // Temporarily disable interactions while uploading
-                try { overlay.style.pointerEvents = 'none'; } catch {}
-                try { btnSave.disabled = true; } catch {}
-                try { modeDraw.disabled = true; modeSelect.disabled = true; if (modeSplit) modeSplit.disabled = true; } catch {}
+                // Prepare stage for editing immediately
+                state.selected = null; state.rects = [];
+                await initFromCurrentImage({fit:true});
+                selectRect('');
+                markDirty(false);
 
                 // Optimistically add a placeholder entry to the left panel
                 const tmpId = 'pending-' + Math.random().toString(36).slice(2,8);
                 const placeholder = { id: tmpId, name: 'New API', image_url: img.src, rects: [] , pending: true };
                 state.apis.unshift(placeholder); renderList();
+                state.selected = tmpId;
 
                 const fd = new FormData(); fd.append('image', file);
                 try {
@@ -872,19 +896,20 @@ def make_builder_app() -> gr.Blocks:
                   const idx = state.apis.findIndex(a=>a.id===tmpId);
                   if (idx>=0) state.apis.splice(idx,1,doc); else state.apis.unshift(doc);
                   renderList();
-                  // Re-enable interactions and load real doc (with signed URL)
-                  try { overlay.style.pointerEvents = ''; } catch {}
-                  try { modeDraw.disabled = false; modeSelect.disabled = false; if (modeSplit) modeSplit.disabled = false; } catch {}
+                  // Keep current stage (local preview) to avoid recalibration; swap to signed URL silently
+                  img.src = doc.image_url || img.src;
+                  state.selected = doc.id;
+                  titleInp.value = doc.name || titleInp.value || 'New API';
                   hideCreate();
-                  await loadApi(doc.id);
+                  // If user has drawn rectangles meanwhile, persist immediately
+                  if (state.rects && state.rects.length) { await doSave(); }
+                  markDirty(false);
                   setMode('draw');
                 } catch (e) {
                   alert('Failed to create API');
                   // Remove placeholder on failure
                   const idx = state.apis.findIndex(a=>a.id===tmpId);
                   if (idx>=0) { state.apis.splice(idx,1); renderList(); }
-                  try { overlay.style.pointerEvents = ''; } catch {}
-                  try { modeDraw.disabled = false; modeSelect.disabled = false; if (modeSplit) modeSplit.disabled = false; } catch {}
                 }
               };
 
