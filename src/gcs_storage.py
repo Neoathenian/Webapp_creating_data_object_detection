@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 from google.cloud import storage
 from google.oauth2 import service_account
@@ -82,6 +82,33 @@ def delete_prefix(prefix: str) -> int:
     return deleted
 
 
+def blob_exists(blob_name: str) -> bool:
+    bucket = get_bucket()
+    return bucket.blob(blob_name).exists(storage_client())
+
+
+def is_name_taken(uid: str, name: str) -> bool:
+    """Return True if any object exists under `<uid>/<name>/` prefix."""
+    client = storage_client()
+    bucket = get_bucket()
+    prefix = f"{uid}/{name}/"
+    it = client.list_blobs(bucket, prefix=prefix, max_results=1)
+    for _ in it:
+        return True
+    return False
+
+
+def copy_blob(src_blob: str, dst_blob: str, *, delete_src: bool = False) -> None:
+    bucket = get_bucket()
+    src = bucket.blob(src_blob)
+    bucket.copy_blob(src, bucket, dst_blob)
+    if delete_src:
+        try:
+            src.delete()
+        except Exception:
+            pass
+
+
 def iter_user_docs(uid: str) -> Iterable[Dict[str, Any]]:
     """
     Yield parsed JSON docs for a user by scanning `<uid>/*/doc.json`.
@@ -101,4 +128,22 @@ def iter_user_docs(uid: str) -> Iterable[Dict[str, Any]]:
             # ignore malformed docs
             continue
 
+
+def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]]:
+    """Return (doc, blob_name) for the given id within user's folder."""
+    client = storage_client()
+    bucket = get_bucket()
+    prefix = f"{uid}/"
+    for blob in client.list_blobs(bucket, prefix=prefix):
+        name = blob.name or ""
+        if not name.endswith("/doc.json"):
+            continue
+        try:
+            raw = blob.download_as_bytes()
+            doc = json.loads(raw.decode("utf-8"))
+            if str(doc.get("id")) == str(api_id):
+                return doc, name
+        except Exception:
+            continue
+    return None
 

@@ -17,6 +17,9 @@ from src.gcs_storage import (
     download_bytes,
     iter_user_docs,
     delete_prefix,
+    is_name_taken,
+    find_doc_by_id,
+    copy_blob,
 )
 
 
@@ -32,15 +35,21 @@ def _now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
 
-def _doc_blob(uid: str, api_id: str) -> str:
-    return f"{uid}/{api_id}/doc.json"
+def _doc_blob_by_name(uid: str, api_name: str) -> str:
+    return f"{uid}/{api_name}/doc.json"
 
 
-def _image_blob(uid: str, api_id: str, ext: str) -> str:
+def _image_blob_by_name(uid: str, api_name: str, ext: str) -> str:
     if ext and not ext.startswith("."):
         ext = "." + ext
     ext = (ext or ".png").lower()[:16]
-    return f"{uid}/{api_id}/image{ext}"
+    return f"{uid}/{api_name}/image{ext}"
+
+
+def _random_name(n: int = 10) -> str:
+    import base64, os as _os
+    token = base64.urlsafe_b64encode(_os.urandom(9)).decode("ascii").rstrip("=")
+    return token[:max(4, n)]
 
 
 class Rect(BaseModel):
@@ -68,18 +77,17 @@ class ApiMeta(BaseModel):
 
 
 def _load_api(uid: str, api_id: str) -> Dict[str, Any]:
-    blob_name = _doc_blob(uid, api_id)
-    try:
-        raw = download_bytes(blob_name)
-    except Exception:
+    found = find_doc_by_id(uid, api_id)
+    if not found:
         raise HTTPException(status_code=404, detail="API not found")
-    return json.loads(raw.decode("utf-8"))
+    doc, _ = found
+    return doc
 
 
 def _save_api(doc: Dict[str, Any]) -> None:
     uid = doc["user_id"]
-    api_id = doc["id"]
-    blob_name = _doc_blob(uid, api_id)
+    name = doc["name"]
+    blob_name = _doc_blob_by_name(uid, name)
     data = json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8")
     upload_bytes(data, blob_name, content_type="application/json")
 
@@ -118,11 +126,22 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
         raise HTTPException(status_code=400, detail="Image file required")
 
     api_id = uuid.uuid4().hex
+    # Create a unique random API name for the folder (ignore provided name)
+    attempt = 0
+    api_name = None
+    while True:
+        attempt += 1
+        base = _random_name(10)
+        candidate = base if attempt == 1 else f"{base}-{_random_name(4)}"
+        if not is_name_taken(uid, candidate):
+            api_name = candidate
+            break
+
     # Extract extension if present
     ext = ""
     if image.filename and "." in image.filename:
         ext = image.filename.rsplit(".", 1)[-1]
-    img_blob = _image_blob(uid, api_id, ext)
+    img_blob = _image_blob_by_name(uid, api_name, ext)
 
     # Upload image to GCS
     upload_fileobj(image.file, img_blob, content_type=content_type or None)
@@ -131,7 +150,7 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
     doc: Dict[str, Any] = {
         "id": api_id,
         "user_id": uid,
-        "name": (name or "Untitled API").strip() or "Untitled API",
+        "name": api_name,
         "created_at": now,
         "updated_at": now,
         "image_blob": img_blob,
@@ -161,14 +180,48 @@ class ApiUpdate(BaseModel):
 @router.put("/apis/{api_id}")
 def update_api(api_id: str, upd: ApiUpdate, request: Request):
     uid = _user_id(request)
-    doc = _load_api(uid, api_id)
+    found = find_doc_by_id(uid, api_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="API not found")
+    doc, old_doc_blob = found
     if doc.get("user_id") != uid:
         raise HTTPException(status_code=403, detail="Forbidden")
 
     changed = False
     if upd.name is not None:
-        doc["name"] = (upd.name or "").strip() or doc.get("name") or "Untitled API"
-        changed = True
+        new_name = (upd.name or "").strip() or doc.get("name") or ""
+        if not new_name:
+            new_name = _random_name(10)
+        # If name actually changes, ensure uniqueness and move
+        if new_name != doc.get("name"):
+            base = new_name
+            while is_name_taken(uid, new_name):
+                # If we are colliding with our current folder, stop
+                if new_name == doc.get("name"):
+                    break
+                new_name = f"{base}-{_random_name(4)}"
+            # Move image blob if present
+            old_img_blob = doc.get("image_blob") or ""
+            ext = ""
+            if "." in old_img_blob:
+                ext = old_img_blob.rsplit(".", 1)[-1]
+            new_img_blob = _image_blob_by_name(uid, new_name, ext)
+            if old_img_blob:
+                try:
+                    copy_blob(old_img_blob, new_img_blob, delete_src=False)
+                except Exception:
+                    pass
+            # Update fields and save new doc.json
+            old_prefix = f"{uid}/{doc.get('name')}/"
+            doc["name"] = new_name
+            doc["image_blob"] = new_img_blob
+            doc["updated_at"] = _now_iso()
+            _save_api(doc)
+            try:
+                delete_prefix(old_prefix)
+            except Exception:
+                pass
+            changed = False  # already saved
     if upd.rects is not None:
         # Coerce to plain dicts
         doc["rects"] = [r.model_dump() if isinstance(r, Rect) else r for r in upd.rects]
@@ -190,7 +243,7 @@ def delete_api(api_id: str, request: Request):
     if doc.get("user_id") != uid:
         raise HTTPException(status_code=403, detail="Forbidden")
     # Remove all blobs under the API folder
-    delete_prefix(f"{uid}/{api_id}/")
+    delete_prefix(f"{uid}/{doc.get('name')}/")
     return {"ok": True}
 
 

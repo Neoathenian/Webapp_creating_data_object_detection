@@ -24,8 +24,8 @@ pip install google-cloud-storage
 How it works
 ------------
 
-- On create: image is uploaded to `gs://<bucket>/<user_id>/<api_id>/image.<ext>` and a `doc.json` is saved in the same folder.
-- On save: the `doc.json` is updated in the bucket.
+- On create: server generates a unique random API name and stores under `gs://<bucket>/<user_id>/<api_name>/` with `image.<ext>` and `doc.json`.
+- On save: the `doc.json` is updated. If the API name changes, the server moves the folder to the new `<api_name>` (and ensures uniqueness by adding a short suffix when needed).
 - On list/load: the server lists `<user_id>/*/doc.json` and returns docs. Thumbnails/images are proxied via `/builder/images/{api_id}` so the bucket can remain private.
 
 Notes
@@ -33,4 +33,3 @@ Notes
 
 - The user id used for folder names is the authenticated email (fallback to sub/name).
 - You can keep the bucket private; the server reads with the service account and streams images to the browser.
-
