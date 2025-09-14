@@ -47,7 +47,7 @@ def make_builder_app() -> gr.Blocks:
 
               .workspace { position: relative; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; flex: 1 1 auto; display:block; overflow: hidden; min-height: 0; }
               #workspace.mode-select { cursor: default; }
-              #workspace.mode-draw, #overlay.mode-draw { cursor: copy; }
+              #workspace.mode-draw, #overlay.mode-draw { cursor: crosshair; }
               .workspace.grabbing { cursor: grabbing; }
               .stage { position: absolute; left: 0; top: 0; transform-origin: top left; user-select: none; }
               .stage img { display:block; max-width: none; }
@@ -65,7 +65,11 @@ def make_builder_app() -> gr.Blocks:
               #inspector h3 { margin: 4px 0 8px; font-size: 14px; }
               .inspector .row { display:flex; flex-direction:column; gap: 6px; margin: 8px 0; }
               .inspector label { font-size: 12px; color: #374151; }
-              .inspector input[type="text"] { padding:8px; border:1px solid #d1d5db; border-radius:8px; }
+              .inspector input[type="text"], .inspector input[type="number"] { padding:8px; border:1px solid #d1d5db; border-radius:8px; }
+              .inspector input[type="checkbox"] { -webkit-appearance:none; appearance:none; margin:0; width:18px; height:18px; border:2px solid #2563eb; border-radius:4px; background:#fff; display:inline-grid; place-content:center; cursor:pointer; }
+              .inspector input[type="checkbox"]::after { content:""; width:6px; height:10px; border-right:3px solid #fff; border-bottom:3px solid #fff; transform: rotate(45deg) scale(0); transition: transform .12s ease; }
+              .inspector input[type="checkbox"]:checked { background:#2563eb; }
+              .inspector input[type="checkbox"]:checked::after { transform: rotate(45deg) scale(1); }
               .inspector .danger { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; padding:8px 10px; border-radius:8px; cursor:pointer; }
 
               .create-area { display:none; }
