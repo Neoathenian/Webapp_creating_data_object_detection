@@ -42,6 +42,17 @@ def make_builder_app() -> gr.Blocks:
               .mode-btn.icon { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; padding:0; }
               .mode-btn.icon svg { width:18px; height:18px; stroke:#374151; fill:none; stroke-width:2; }
               .mode-btn.active.icon svg { stroke:#1d4ed8; }
+              /* Neutralize Gradio prose default margins that misalign controls */
+              #center .prose button,
+              #center .prose .button,
+              #center .prose input,
+              #center .prose textarea,
+              #center .prose select,
+              #center .prose fieldset { margin-bottom: 0 !important; }
+              /* Keep a tiny bottom margin only for paragraphs in prose blocks */
+              #center .prose p:last-child { margin-bottom: 0.25rem; }
+              /* Ensure toolbar controls align on baseline */
+              .toolbar .mode-btn, .toolbar .save-btn, .toolbar #btn-undo, .toolbar #btn-redo, .toolbar .zoom-wrap { vertical-align: middle; }
               /* Undo/Redo sizing & alignment */
               #btn-undo, #btn-redo { width:40px; height:36px; display:inline-flex; align-items:center; justify-content:center; border:1px solid #d0d7de; border-radius:10px; background:#fff; font-size:18px; }
               #btn-undo:hover, #btn-redo:hover { background:#f3f4f6; }
@@ -71,6 +82,8 @@ def make_builder_app() -> gr.Blocks:
 
               /* Inspector seps list */
               .seps-list { display:flex; flex-direction:column; gap:8px; max-height:220px; overflow:auto; }
+              /* Zero out Gradio's small spacing inside the line-breaks area */
+              #seps-list { --spacing-sm: 0; }
               .sep-item { display:grid; grid-template-columns: 1fr 44px; gap:8px; align-items:center; }
               .sep-item input[type="number"] { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; height: 38px; box-sizing: border-box; }
               .sep-del { width:44px; height:38px; border:1px solid #e5b3b3; color:#b91c1c; background:#fff; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:20px; line-height:1; }
