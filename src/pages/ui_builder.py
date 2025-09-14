@@ -65,7 +65,9 @@ def make_builder_app() -> gr.Blocks:
               #inspector h3 { margin: 4px 0 8px; font-size: 14px; }
               .inspector .row { display:flex; flex-direction:column; gap: 6px; margin: 8px 0; }
               .inspector label { font-size: 12px; color: #374151; }
-              .inspector input[type="text"], .inspector input[type="number"] { padding:8px; border:1px solid #d1d5db; border-radius:8px; }
+              .inspector input[type="text"], .inspector input[type="number"] {
+                padding:8px; border:1px solid #d1d5db; border-radius:8px; width: 100%; box-sizing: border-box;
+              }
               .inspector input[type="checkbox"] { -webkit-appearance:none; appearance:none; margin:0; width:18px; height:18px; border:2px solid #2563eb; border-radius:4px; background:#fff; display:inline-grid; place-content:center; cursor:pointer; }
               .inspector input[type="checkbox"]::after { content:""; width:6px; height:10px; border-right:3px solid #fff; border-bottom:3px solid #fff; transform: rotate(45deg) scale(0); transition: transform .12s ease; }
               .inspector input[type="checkbox"]:checked { background:#2563eb; }
@@ -140,7 +142,7 @@ def make_builder_app() -> gr.Blocks:
                   <input id='rect-extract' type='checkbox' checked />
                   <label for='rect-extract'>Extract text</label>
                 </div>
-                <div class='row' style='display:grid; grid-template-columns:repeat(2,1fr); gap:8px;'>
+                <div class='row' style='display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px;'>
                   <div>
                     <label for='rect-x'>X (px)</label>
                     <input id='rect-x' type='number' min='0' step='1' />
@@ -345,6 +347,29 @@ def make_builder_app() -> gr.Blocks:
                   el.style.width  = (r.w * state.img.naturalW) + 'px';
                   el.style.height = (r.h * state.img.naturalH) + 'px';
                   el.onclick = (ev) => { ev.stopPropagation(); setMode('select'); selectRect(r.id); };
+                  // Add resize handles if selected
+                  if (overlay.dataset.selected === r.id) {
+                    const cursors = { nw:'nwse-resize', n:'ns-resize', ne:'nesw-resize', e:'ew-resize', se:'nwse-resize', s:'ns-resize', sw:'nesw-resize', w:'ew-resize' };
+                    const positions = ['nw','n','ne','e','se','s','sw','w'];
+                    for (const pos of positions) {
+                      const h = document.createElement('div');
+                      h.className = 'handle'; h.dataset.pos = pos; h.style.position='absolute'; h.style.width='10px'; h.style.height='10px'; h.style.background='#2563eb'; h.style.border='2px solid #fff'; h.style.borderRadius='2px'; h.style.boxSizing='border-box'; h.style.cursor=cursors[pos];
+                      const W = (r.w * state.img.naturalW), H = (r.h * state.img.naturalH);
+                      const off = -5;
+                      const map = {
+                        nw: {left: off, top: off},
+                        n:  {left: W/2-5, top: off},
+                        ne: {left: W-5, top: off},
+                        e:  {left: W-5, top: H/2-5},
+                        se: {left: W-5, top: H-5},
+                        s:  {left: W/2-5, top: H-5},
+                        sw: {left: off, top: H-5},
+                        w:  {left: off, top: H/2-5},
+                      };
+                      const p = map[pos]; h.style.left = p.left+'px'; h.style.top=p.top+'px';
+                      el.appendChild(h);
+                    }
+                  }
                   overlay.appendChild(el);
                 }
               }
@@ -402,11 +427,16 @@ def make_builder_app() -> gr.Blocks:
               // Drawing & Panning
               let drawing = null; // {startX,startY,el}
               let panning = null; // {sx,sy,px,py}
+              let moving = null; // {id, startX, startY, rx, ry, rw, rh}
+              let resizing = null; // {id, pos, startX, startY, rx, ry, rw, rh}
 
               const workspace = document.getElementById('workspace');
               workspace.addEventListener('mousedown', (ev) => {
                 if (state.mode !== 'select') return;
-                if (ev.target && ev.target.classList && ev.target.classList.contains('rect')) return;
+                // ignore rectangle body and resize handles
+                const isRect = ev.target && ev.target.closest && ev.target.closest('.rect');
+                const isHandle = ev.target && ev.target.closest && ev.target.closest('.handle');
+                if (isRect || isHandle) return;
                 panning = { sx: ev.clientX, sy: ev.clientY, px: state.panX, py: state.panY };
                 workspace.classList.add('grabbing');
                 ev.preventDefault();
@@ -421,48 +451,96 @@ def make_builder_app() -> gr.Blocks:
                 if (panning) { panning = null; workspace.classList.remove('grabbing'); }
               });
               overlay.addEventListener('mousedown', (ev) => {
-                if (state.mode !== 'draw') return;
                 const box = img.getBoundingClientRect();
                 const px = ev.clientX - box.left; const py = ev.clientY - box.top;
-                const x = percentClamp(px / (state.img.naturalW * state.zoom));
-                const y = percentClamp(py / (state.img.naturalH * state.zoom));
+                const gx = percentClamp(px / (state.img.naturalW * state.zoom));
+                const gy = percentClamp(py / (state.img.naturalH * state.zoom));
+                // Resize handle?
+                const h = ev.target.closest ? ev.target.closest('.handle') : null;
+                const rectEl = ev.target.classList && ev.target.classList.contains('rect') ? ev.target : (h ? h.parentElement : null);
+                if (state.mode === 'select' && h && rectEl) {
+                  const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
+                  resizing = { id, pos: h.dataset.pos, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
+                  ev.preventDefault(); ev.stopPropagation(); return;
+                }
+                if (state.mode === 'select' && rectEl) {
+                  const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
+                  selectRect(id);
+                  moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
+                  ev.preventDefault(); ev.stopPropagation(); return;
+                }
+                if (state.mode !== 'draw') return;
                 const el = document.createElement('div'); el.className = 'rect selected'; overlay.appendChild(el);
-                drawing = { startX: x, startY: y, el };
+                drawing = { startX: gx, startY: gy, el };
                 overlay.dataset.selected = '';
                 for (const r of overlay.querySelectorAll('.rect')) r.classList.remove('selected');
-                ev.preventDefault();
+                ev.preventDefault(); ev.stopPropagation();
               });
               window.addEventListener('mousemove', (ev) => {
-                if (!drawing) return;
                 const box = img.getBoundingClientRect();
                 const px = ev.clientX - box.left; const py = ev.clientY - box.top;
-                const x2 = percentClamp(px / (state.img.naturalW * state.zoom));
-                const y2 = percentClamp(py / (state.img.naturalH * state.zoom));
-                const x = Math.min(drawing.startX, x2), y = Math.min(drawing.startY, y2);
-                const w = Math.abs(x2 - drawing.startX), h = Math.abs(y2 - drawing.startY);
-                drawing.el.style.left = (x * state.img.naturalW) + 'px';
-                drawing.el.style.top  = (y * state.img.naturalH) + 'px';
-                drawing.el.style.width  = (w * state.img.naturalW) + 'px';
-                drawing.el.style.height = (h * state.img.naturalH) + 'px';
+                const gx = percentClamp(px / (state.img.naturalW * state.zoom));
+                const gy = percentClamp(py / (state.img.naturalH * state.zoom));
+                if (drawing) {
+                  const x = Math.min(drawing.startX, gx), y = Math.min(drawing.startY, gy);
+                  const w = Math.abs(gx - drawing.startX), h = Math.abs(gy - drawing.startY);
+                  drawing.el.style.left = (x * state.img.naturalW) + 'px';
+                  drawing.el.style.top  = (y * state.img.naturalH) + 'px';
+                  drawing.el.style.width  = (w * state.img.naturalW) + 'px';
+                  drawing.el.style.height = (h * state.img.naturalH) + 'px';
+                  return;
+                }
+                if (moving) {
+                  const r = state.rects.find(x=>x.id===moving.id); if(!r) return;
+                  let dx = gx - moving.startX, dy = gy - moving.startY;
+                  r.x = percentClamp(moving.rx + dx); r.y = percentClamp(moving.ry + dy);
+                  // clamp so rect stays inside
+                  r.x = Math.min(r.x, 1 - r.w); r.y = Math.min(r.y, 1 - r.h);
+                  renderRects();
+                  // update inspector fields
+                  rectX.value = Math.round(r.x * state.img.naturalW);
+                  rectY.value = Math.round(r.y * state.img.naturalH);
+                  return;
+                }
+                if (resizing) {
+                  const r = state.rects.find(x=>x.id===resizing.id); if(!r) return;
+                  let x = resizing.rx, y = resizing.ry, w = resizing.rw, h = resizing.rh;
+                  const pos = resizing.pos;
+                  const min = 0.002;
+                  if (pos.includes('e')) { w = Math.max(min, Math.min(1 - x, resizing.rw + (gx - resizing.startX))); }
+                  if (pos.includes('s')) { h = Math.max(min, Math.min(1 - y, resizing.rh + (gy - resizing.startY))); }
+                  if (pos.includes('w')) { const nx = Math.max(0, Math.min(resizing.rx + (gx - resizing.startX), resizing.rx + resizing.rw - min)); w = resizing.rx + resizing.rw - nx; x = nx; }
+                  if (pos.includes('n')) { const ny = Math.max(0, Math.min(resizing.ry + (gy - resizing.startY), resizing.ry + resizing.rh - min)); h = resizing.ry + resizing.rh - ny; y = ny; }
+                  r.x = x; r.y = y; r.w = w; r.h = h;
+                  renderRects();
+                  rectX.value = Math.round(r.x * state.img.naturalW);
+                  rectY.value = Math.round(r.y * state.img.naturalH);
+                  rectW.value = Math.round(r.w * state.img.naturalW);
+                  rectH.value = Math.round(r.h * state.img.naturalH);
+                  return;
+                }
               });
               window.addEventListener('mouseup', (ev) => {
-                if (!drawing) return;
-                const box = img.getBoundingClientRect();
-                const px = ev.clientX - box.left; const py = ev.clientY - box.top;
-                const x2 = percentClamp(px / (state.img.naturalW * state.zoom));
-                const y2 = percentClamp(py / (state.img.naturalH * state.zoom));
-                const x = Math.min(drawing.startX, x2), y = Math.min(drawing.startY, y2);
-                const w = Math.abs(x2 - drawing.startX), h = Math.abs(y2 - drawing.startY);
-                if (w > 0.002 && h > 0.002) {
-                  const id = 'r-' + Math.random().toString(36).slice(2, 9);
-                  const rect = { id, name: '', x, y, w, h, extract_text: true };
-                  state.rects.push(rect);
-                  selectRect(id);
-                  markDirty(true);
-                } else {
-                  try { drawing.el.remove(); } catch {}
+                if (drawing) {
+                  const box = img.getBoundingClientRect();
+                  const px = ev.clientX - box.left; const py = ev.clientY - box.top;
+                  const x2 = percentClamp(px / (state.img.naturalW * state.zoom));
+                  const y2 = percentClamp(py / (state.img.naturalH * state.zoom));
+                  const x = Math.min(drawing.startX, x2), y = Math.min(drawing.startY, y2);
+                  const w = Math.abs(x2 - drawing.startX), h = Math.abs(y2 - drawing.startY);
+                  if (w > 0.002 && h > 0.002) {
+                    const id = 'r-' + Math.random().toString(36).slice(2, 9);
+                    const rect = { id, name: '', x, y, w, h, extract_text: true };
+                    state.rects.push(rect);
+                    selectRect(id);
+                    markDirty(true);
+                  } else {
+                    try { drawing.el.remove(); } catch {}
+                  }
+                  drawing = null; renderRects(); return;
                 }
-                drawing = null; renderRects();
+                if (moving) { moving = null; markDirty(true); return; }
+                if (resizing) { resizing = null; markDirty(true); return; }
               });
 
               overlay.addEventListener('click', (ev) => {
