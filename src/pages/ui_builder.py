@@ -42,10 +42,13 @@ def make_builder_app() -> gr.Blocks:
               .mode-btn.icon { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; padding:0; }
               .mode-btn.icon svg { width:18px; height:18px; stroke:#374151; fill:none; stroke-width:2; }
               .mode-btn.active.icon svg { stroke:#1d4ed8; }
+              /* Undo/Redo sizing & alignment */
+              #btn-undo, #btn-redo { width:40px; height:36px; display:inline-flex; align-items:center; justify-content:center; border:1px solid #d0d7de; border-radius:10px; background:#fff; font-size:18px; }
+              #btn-undo:hover, #btn-redo:hover { background:#f3f4f6; }
               .api-title { flex: 1; min-width: 220px; padding:8px; border:1px solid #d1d5db; border-radius:8px; }
               .zoom-wrap { display:flex; align-items:center; gap:6px; }
               .zoom-range { width: 180px; }
-              .save-btn { padding: 6px 12px; border-radius: 8px; border:1px solid #10b981; background:#10b981; color:#fff; cursor:pointer; }
+              .save-btn { padding: 8px 14px; border-radius: 8px; border:1px solid #10b981; background:#10b981; color:#fff; cursor:pointer; font-size:14px; }
               .save-btn[disabled] { opacity:.5; cursor:not-allowed; }
 
               .workspace { position: relative; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; flex: 1 1 auto; display:block; overflow: hidden; min-height: 0; }
@@ -67,10 +70,10 @@ def make_builder_app() -> gr.Blocks:
               .hint { color:#6b7280; text-align:center; padding: 20px; }
 
               /* Inspector seps list */
-              .seps-list { display:flex; flex-direction:column; gap:6px; max-height:200px; overflow:auto; }
-              .sep-item { display:grid; grid-template-columns: 1fr auto; gap:6px; align-items:center; }
-              .sep-item input[type="number"] { width:100%; padding:6px; border:1px solid #d1d5db; border-radius:6px; }
-              .sep-del { width:28px; height:28px; border:1px solid #e5b3b3; color:#b91c1c; background:#fff; border-radius:6px; cursor:pointer; }
+              .seps-list { display:flex; flex-direction:column; gap:8px; max-height:220px; overflow:auto; }
+              .sep-item { display:grid; grid-template-columns: 1fr 44px; gap:8px; align-items:center; }
+              .sep-item input[type="number"] { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; height: 38px; box-sizing: border-box; }
+              .sep-del { width:44px; height:38px; border:1px solid #e5b3b3; color:#b91c1c; background:#fff; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:20px; line-height:1; }
               .sep-del:hover { background:#fdecec; }
 
               /* Right inspector */
@@ -94,6 +97,11 @@ def make_builder_app() -> gr.Blocks:
               .create-actions { display:flex; gap:8px; margin-top:8px; }
               .btn { padding: 8px 12px; border: 1px solid #d0d7de; border-radius: 8px; background:#fff; cursor:pointer; }
               .btn.primary { background:#2563eb; border-color:#2563eb; color: #fff; }
+              /* Slightly bigger action buttons */
+              #btn-new-api { padding: 7px 14px; font-size:14px; }
+              .inspector-close { position:absolute; top:8px; right:10px; width:28px; height:28px; border:1px solid #d0d7de; border-radius:6px; background:#fff; color:#374151; cursor:pointer; }
+              .inspector-close:hover { background:#f3f4f6; }
+              #btn-save { padding: 8px 14px; font-size:14px; }
             </style>
             """
         )
@@ -137,9 +145,11 @@ def make_builder_app() -> gr.Blocks:
                     <path d="M12 6v12" opacity=".0"></path>
                   </svg>
                 </button>
-                <span class='zoom-wrap'>Zoom <input id='zoom-range' class='zoom-range' type='range' min='20' max='300' value='100' /> <span id='zoom-label'>100%</span></span>
-                <button id='btn-save' class='save-btn' disabled>Save</button>
-              </div>
+              <span class='zoom-wrap'>Zoom <input id='zoom-range' class='zoom-range' type='range' min='20' max='300' value='100' /> <span id='zoom-label'>100%</span></span>
+              <button id='btn-save' class='save-btn' disabled>Save</button>
+              <button id='btn-undo' class='mode-btn' title='Undo (Ctrl+Z)' aria-label='Undo'>⟲</button>
+              <button id='btn-redo' class='mode-btn' title='Redo (Ctrl+Y)' aria-label='Redo'>⟳</button>
+            </div>
               <div class='create-area' id='create-area'>
                 <div style='margin-bottom:6px;color:#374151;'>Upload an image to start a new API</div>
                 <div id='new-api-uploader-slot'></div>
@@ -164,6 +174,7 @@ def make_builder_app() -> gr.Blocks:
             value="""
             <div class='inspector' id='inspector'>
               <h3>Inspector</h3>
+              <button id='inspector-close' class='inspector-close' title='Close' aria-label='Close'>×</button>
               <div id='selection-panel' style='display:none;'>
                 <div class='row'>
                   <label for='rect-name'>Name</label>
@@ -257,8 +268,19 @@ def make_builder_app() -> gr.Blocks:
               const center = document.getElementById('center');
               const btnSave = document.getElementById('btn-save');
               const sepsList = document.getElementById('seps-list');
+              const btnInspectorClose = document.getElementById('inspector-close');
+              const btnUndo = document.getElementById('btn-undo');
+              const btnRedo = document.getElementById('btn-redo');
 
               function markDirty(d=true){ state.dirty=!!d; btnSave.disabled = !state.dirty || !state.selected; }
+
+              // --- Simple history (rectangles only)
+              const history = { undo: [], redo: [] };
+              const cloneRects = () => JSON.parse(JSON.stringify(state.rects||[]));
+              function pushHistory(){ history.undo.push(cloneRects()); history.redo.length = 0; }
+              function applyRects(rects){ state.rects = JSON.parse(JSON.stringify(rects||[])); renderRects(); const cur = state.rects.find(x=>x.id===overlay.dataset.selected); try{ renderSepsInspector(cur); }catch{} markDirty(true); }
+              function undo(){ if(!history.undo.length) return; history.redo.push(cloneRects()); const prev = history.undo.pop(); applyRects(prev); }
+              function redo(){ if(!history.redo.length) return; history.undo.push(cloneRects()); const next = history.redo.pop(); applyRects(next); }
 
               async function doSave(){
                 if (!state.selected) return true;
@@ -269,6 +291,18 @@ def make_builder_app() -> gr.Blocks:
               }
 
               window.addEventListener('beforeunload', (e)=>{ if(state.dirty){ e.preventDefault(); e.returnValue=''; return ''; } });
+
+              if (btnInspectorClose) {
+                btnInspectorClose.onclick = () => { clearSelection(); };
+              }
+              if (btnUndo) btnUndo.onclick = () => undo();
+              if (btnRedo) btnRedo.onclick = () => redo();
+              window.addEventListener('keydown', (e) => {
+                const z = (e.key === 'z' || e.key === 'Z');
+                const y = (e.key === 'y' || e.key === 'Y');
+                if ((e.ctrlKey || e.metaKey) && z) { e.preventDefault(); undo(); }
+                else if ((e.ctrlKey || e.metaKey) && y) { e.preventDefault(); redo(); }
+              });
 
               // Move uploader into slot once
               if (hiddenMount && slot && !slot.hasChildNodes()) {
@@ -390,7 +424,7 @@ def make_builder_app() -> gr.Blocks:
                   el.style.top  = (r.y * state.img.naturalH) + 'px';
                   el.style.width  = (r.w * state.img.naturalW) + 'px';
                   el.style.height = (r.h * state.img.naturalH) + 'px';
-                  el.onclick = (ev) => { ev.stopPropagation(); setMode('select'); selectRect(r.id); };
+                  el.onclick = (ev) => { ev.stopPropagation(); /* keep current mode */ selectRect(r.id); };
                   // Render horizontal separators
                   const seps = Array.isArray(r.seps) ? r.seps : [];
                   for (let i=0;i<seps.length;i++){
@@ -578,6 +612,19 @@ def make_builder_app() -> gr.Blocks:
               window.addEventListener('mouseup', () => {
                 if (panning) { panning = null; workspace.classList.remove('grabbing'); }
               });
+              // Double-click on a rectangle to start moving it (even in draw mode)
+              overlay.addEventListener('dblclick', (ev) => {
+                const rectEl = ev.target.closest && ev.target.closest('.rect'); if (!rectEl) return;
+                const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
+                const box = img.getBoundingClientRect();
+                const px = ev.clientX - box.left; const py = ev.clientY - box.top;
+                const gx = percentClamp(px / (state.img.naturalW * state.zoom));
+                const gy = percentClamp(py / (state.img.naturalH * state.zoom));
+                history.undo.push(cloneRects()); history.redo.length = 0;
+                selectRect(id);
+                moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
+                ev.preventDefault(); ev.stopPropagation();
+              });
               overlay.addEventListener('mousedown', (ev) => {
                 const box = img.getBoundingClientRect();
                 const px = ev.clientX - box.left; const py = ev.clientY - box.top;
@@ -601,12 +648,14 @@ def make_builder_app() -> gr.Blocks:
                   markDirty(true);
                   ev.preventDefault(); ev.stopPropagation(); return;
                 }
-                if (state.mode === 'select' && h && rectEl) {
+                if (h && rectEl) {
+                  history.undo.push(cloneRects()); history.redo.length = 0;
                   const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
                   resizing = { id, pos: h.dataset.pos, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
                   ev.preventDefault(); ev.stopPropagation(); return;
                 }
                 if (state.mode === 'select' && rectEl) {
+                  history.undo.push(cloneRects()); history.redo.length = 0;
                   const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
                   selectRect(id);
                   moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
