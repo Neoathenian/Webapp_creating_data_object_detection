@@ -46,7 +46,8 @@ def make_builder_app() -> gr.Blocks:
               .save-btn[disabled] { opacity:.5; cursor:not-allowed; }
 
               .workspace { position: relative; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; flex: 1 1 auto; display:block; overflow: hidden; min-height: 0; }
-              .workspace.grab { cursor: grab; }
+              #workspace.mode-select { cursor: default; }
+              #workspace.mode-draw, #overlay.mode-draw { cursor: copy; }
               .workspace.grabbing { cursor: grabbing; }
               .stage { position: absolute; left: 0; top: 0; transform-origin: top left; user-select: none; }
               .stage img { display:block; max-width: none; }
@@ -110,7 +111,7 @@ def make_builder_app() -> gr.Blocks:
                   <button id='btn-cancel-create' class='btn'>Cancel</button>
                 </div>
               </div>
-                <div class='workspace grab' id='workspace'>
+                <div class='workspace mode-select' id='workspace'>
                   <div class='hint' id='workspace-hint'>Select an API from the left or create a new one.</div>
                   <div class='stage' id='stage' style='display:none;'>
                     <img id='workspace-img' src='' alt='document' />
@@ -134,6 +135,24 @@ def make_builder_app() -> gr.Blocks:
                 <div class='row' style='flex-direction:row; align-items:center; gap:8px;'>
                   <input id='rect-extract' type='checkbox' checked />
                   <label for='rect-extract'>Extract text</label>
+                </div>
+                <div class='row' style='display:grid; grid-template-columns:repeat(2,1fr); gap:8px;'>
+                  <div>
+                    <label for='rect-x'>X (px)</label>
+                    <input id='rect-x' type='number' min='0' step='1' />
+                  </div>
+                  <div>
+                    <label for='rect-y'>Y (px)</label>
+                    <input id='rect-y' type='number' min='0' step='1' />
+                  </div>
+                  <div>
+                    <label for='rect-w'>W (px)</label>
+                    <input id='rect-w' type='number' min='1' step='1' />
+                  </div>
+                  <div>
+                    <label for='rect-h'>H (px)</label>
+                    <input id='rect-h' type='number' min='1' step='1' />
+                  </div>
                 </div>
                 <div class='row'>
                   <button id='btn-delete-rect' class='danger'>Delete rectangle</button>
@@ -181,6 +200,10 @@ def make_builder_app() -> gr.Blocks:
               const selPanel = document.getElementById('selection-panel');
               const rectName = document.getElementById('rect-name');
               const rectExtract = document.getElementById('rect-extract');
+              const rectX = document.getElementById('rect-x');
+              const rectY = document.getElementById('rect-y');
+              const rectW = document.getElementById('rect-w');
+              const rectH = document.getElementById('rect-h');
               const btnDelRect = document.getElementById('btn-delete-rect');
               const btnCreateFromUpload = document.getElementById('btn-create-from-upload');
               const btnCancelCreate = document.getElementById('btn-cancel-create');
@@ -209,11 +232,15 @@ def make_builder_app() -> gr.Blocks:
                 return document.getElementById('file-new-api-upload-up');
               }
 
-              function setMode(m) {
-                state.mode = m;
-                modeSelect.classList.toggle('active', m === 'select');
-                modeDraw.classList.toggle('active', m === 'draw');
-              }
+  function setMode(m) {
+    state.mode = m;
+    modeSelect.classList.toggle('active', m === 'select');
+    modeDraw.classList.toggle('active', m === 'draw');
+    const ws = document.getElementById('workspace');
+    const ov = document.getElementById('overlay');
+    if (ws) { ws.classList.toggle('mode-select', m === 'select'); ws.classList.toggle('mode-draw', m === 'draw'); }
+    if (ov) { ov.classList.toggle('mode-draw', m === 'draw'); }
+  }
 
               function setInspectorOpen(open) {
                 inspector.classList.toggle('open', !!open);
@@ -271,6 +298,10 @@ def make_builder_app() -> gr.Blocks:
                   rectName.value = r.name || '';
                   rectExtract.checked = !!r.extract_text;
                   setInspectorOpen(true);
+                  rectX.value = Math.round(r.x * state.img.naturalW);
+                  rectY.value = Math.round(r.y * state.img.naturalH);
+                  rectW.value = Math.round(r.w * state.img.naturalW);
+                  rectH.value = Math.round(r.h * state.img.naturalH);
                 } else {
                   clearSelection();
                 }
@@ -445,6 +476,20 @@ def make_builder_app() -> gr.Blocks:
                 const r = state.rects.find(x => x.id === id);
                 if (!r) return; r.extract_text = !!rectExtract.checked; markDirty(true);
               };
+              function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+              function applyRectEdits(){
+                const id = overlay.dataset.selected || '';
+                const r = state.rects.find(x => x.id === id);
+                if (!r) return;
+                const W = state.img.naturalW, H = state.img.naturalH;
+                let x = +rectX.value || 0, y = +rectY.value || 0, w = +rectW.value || 1, h = +rectH.value || 1;
+                x = clamp(x, 0, W-1); y = clamp(y, 0, H-1);
+                w = clamp(w, 1, W - x); h = clamp(h, 1, H - y);
+                r.x = x / W; r.y = y / H; r.w = w / W; r.h = h / H;
+                rectX.value = Math.round(x); rectY.value = Math.round(y); rectW.value = Math.round(w); rectH.value = Math.round(h);
+                renderRects(); markDirty(true);
+              }
+              rectX.onchange = rectY.onchange = rectW.onchange = rectH.onchange = applyRectEdits;
               btnDelRect.onclick = () => {
                 const id = overlay.dataset.selected || '';
                 if (!id) return;
