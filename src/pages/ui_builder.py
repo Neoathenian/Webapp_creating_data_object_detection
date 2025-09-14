@@ -49,8 +49,10 @@ def make_builder_app() -> gr.Blocks:
               #center .prose textarea,
               #center .prose select,
               #center .prose fieldset { margin-bottom: 0 !important; }
-              /* Keep a tiny bottom margin only for paragraphs in prose blocks */
-              #center .prose p:last-child { margin-bottom: 0.25rem; }
+              /* Force Gradio prose last-child margin to its default instead of 0 */
+              #center .prose :last-child { margin-bottom: initial !important; }
+              /* And for safety, strip bottom margin from controls inside toolbar area */
+              #center .toolbar :is(button, .button, input, select, textarea, fieldset) { margin-bottom: 0 !important; }
               /* Ensure toolbar controls align on baseline */
               .toolbar .mode-btn, .toolbar .save-btn, .toolbar #btn-undo, .toolbar #btn-redo, .toolbar .zoom-wrap { vertical-align: middle; }
               /* Undo/Redo sizing & alignment */
