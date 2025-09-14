@@ -45,6 +45,9 @@ class Rect(BaseModel):
     w: float = Field(ge=0, le=1)
     h: float = Field(ge=0, le=1)
     extract_text: bool = True
+    diacritics: bool = False
+    # Horizontal separators inside the rectangle (0..1 from top)
+    seps: List[float] = Field(default_factory=list)
 
 
 class ApiMeta(BaseModel):
@@ -216,4 +219,3 @@ def delete_api(api_id: str, request: Request):
         except Exception:
             pass
     return {"ok": True}
-

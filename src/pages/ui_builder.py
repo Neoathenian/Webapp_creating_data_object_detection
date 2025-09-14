@@ -51,6 +51,7 @@ def make_builder_app() -> gr.Blocks:
               .workspace { position: relative; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; flex: 1 1 auto; display:block; overflow: hidden; min-height: 0; }
               #workspace.mode-select { cursor: default; }
               #workspace.mode-draw, #overlay.mode-draw { cursor: crosshair; }
+              #workspace.mode-split, #overlay.mode-split { cursor: row-resize; }
               .workspace.grabbing { cursor: grabbing; }
               .stage { position: absolute; left: 0; top: 0; transform-origin: top left; user-select: none; }
               .stage img { display:block; max-width: none; }
@@ -58,7 +59,19 @@ def make_builder_app() -> gr.Blocks:
               .overlay { position: absolute; left: 0; top: 0; pointer-events: auto; }
               .rect { position: absolute; border: 2px solid #2563eb; background: rgba(37,99,235,0.05); box-sizing: border-box; pointer-events: auto; border-radius: 2px; }
               .rect.selected { border-color: #ef4444; background: rgba(239,68,68,0.06); }
+              .rect .sep-line { position:absolute; left:0; right:0; height:0; border-top:2px dashed rgba(37,99,235,0.8); cursor: row-resize; }
+              .rect .sep-line:hover { border-top-color:#1d4ed8; }
+              /* When subdividing, hide resize handles so clicks create lines */
+              #overlay.mode-split .handle { display:none !important; pointer-events:none !important; }
+              .split-hint { position:absolute; top:8px; right:8px; background:#111827; color:#fff; border-radius:6px; padding:4px 8px; font-size:12px; opacity:.85; pointer-events:none; }
               .hint { color:#6b7280; text-align:center; padding: 20px; }
+
+              /* Inspector seps list */
+              .seps-list { display:flex; flex-direction:column; gap:6px; max-height:200px; overflow:auto; }
+              .sep-item { display:grid; grid-template-columns: 1fr auto; gap:6px; align-items:center; }
+              .sep-item input[type="number"] { width:100%; padding:6px; border:1px solid #d1d5db; border-radius:6px; }
+              .sep-del { width:28px; height:28px; border:1px solid #e5b3b3; color:#b91c1c; background:#fff; border-radius:6px; cursor:pointer; }
+              .sep-del:hover { background:#fdecec; }
 
               /* Right inspector */
               #inspector { position: fixed; top: var(--top); right: 0; height: calc(100vh - var(--top)); width: var(--insp);
@@ -118,6 +131,12 @@ def make_builder_app() -> gr.Blocks:
                     <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
                   </svg>
                 </button>
+                <button id='mode-split' class='mode-btn icon' data-mode='split' title='Subdivide' aria-label='Subdivide'>
+                  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M4 12h16"></path>
+                    <path d="M12 6v12" opacity=".0"></path>
+                  </svg>
+                </button>
                 <span class='zoom-wrap'>Zoom <input id='zoom-range' class='zoom-range' type='range' min='20' max='300' value='100' /> <span id='zoom-label'>100%</span></span>
                 <button id='btn-save' class='save-btn' disabled>Save</button>
               </div>
@@ -154,6 +173,10 @@ def make_builder_app() -> gr.Blocks:
                   <input id='rect-extract' type='checkbox' checked />
                   <label for='rect-extract'>Extract text</label>
                 </div>
+                <div class='row' style='flex-direction:row; align-items:center; gap:8px;'>
+                  <input id='rect-diacritics' type='checkbox' />
+                  <label for='rect-diacritics'>Contains diacritics</label>
+                </div>
                 <div class='row' style='display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px;'>
                   <div>
                     <label for='rect-x'>X (px)</label>
@@ -171,6 +194,10 @@ def make_builder_app() -> gr.Blocks:
                     <label for='rect-h'>H (px)</label>
                     <input id='rect-h' type='number' min='1' step='1' />
                   </div>
+                </div>
+                <div class='row'>
+                  <label>Line breaks</label>
+                  <div id='seps-list' class='seps-list'></div>
                 </div>
                 <div class='row'>
                   <button id='btn-delete-rect' class='danger'>Delete rectangle</button>
@@ -215,6 +242,7 @@ def make_builder_app() -> gr.Blocks:
               const zoomLabel = document.getElementById('zoom-label');
               const modeSelect = document.getElementById('mode-select');
               const modeDraw = document.getElementById('mode-draw');
+              const modeSplit = document.getElementById('mode-split');
               const selPanel = document.getElementById('selection-panel');
               const rectName = document.getElementById('rect-name');
               const rectExtract = document.getElementById('rect-extract');
@@ -228,6 +256,7 @@ def make_builder_app() -> gr.Blocks:
               const inspector = document.getElementById('inspector');
               const center = document.getElementById('center');
               const btnSave = document.getElementById('btn-save');
+              const sepsList = document.getElementById('seps-list');
 
               function markDirty(d=true){ state.dirty=!!d; btnSave.disabled = !state.dirty || !state.selected; }
 
@@ -250,15 +279,16 @@ def make_builder_app() -> gr.Blocks:
                 return document.getElementById('file-new-api-upload-up');
               }
 
-  function setMode(m) {
-    state.mode = m;
-    modeSelect.classList.toggle('active', m === 'select');
-    modeDraw.classList.toggle('active', m === 'draw');
-    const ws = document.getElementById('workspace');
-    const ov = document.getElementById('overlay');
-    if (ws) { ws.classList.toggle('mode-select', m === 'select'); ws.classList.toggle('mode-draw', m === 'draw'); }
-    if (ov) { ov.classList.toggle('mode-draw', m === 'draw'); }
-  }
+              function setMode(m) {
+                state.mode = m;
+                modeSelect.classList.toggle('active', m === 'select');
+                modeDraw.classList.toggle('active', m === 'draw');
+                if (modeSplit) modeSplit.classList.toggle('active', m === 'split');
+                const ws = document.getElementById('workspace');
+                const ov = document.getElementById('overlay');
+                if (ws) { ws.classList.toggle('mode-select', m === 'select'); ws.classList.toggle('mode-draw', m === 'draw'); ws.classList.toggle('mode-split', m === 'split'); }
+                if (ov) { ov.classList.toggle('mode-draw', m === 'draw'); ov.classList.toggle('mode-split', m === 'split'); }
+              }
 
               function setInspectorOpen(open) {
                 inspector.classList.toggle('open', !!open);
@@ -315,11 +345,13 @@ def make_builder_app() -> gr.Blocks:
                   selPanel.style.display = 'block';
                   rectName.value = r.name || '';
                   rectExtract.checked = !!r.extract_text;
+                  try { document.getElementById('rect-diacritics').checked = !!r.diacritics; } catch {}
                   setInspectorOpen(true);
                   rectX.value = Math.round(r.x * state.img.naturalW);
                   rectY.value = Math.round(r.y * state.img.naturalH);
                   rectW.value = Math.round(r.w * state.img.naturalW);
                   rectH.value = Math.round(r.h * state.img.naturalH);
+                  try { renderSepsInspector(r); } catch {}
                 } else {
                   clearSelection();
                 }
@@ -347,10 +379,10 @@ def make_builder_app() -> gr.Blocks:
                 applyTransform();
               }
 
-              function renderRects() {
-                overlay.innerHTML = '';
-                layoutOverlay();
-                for (const r of state.rects) {
+  function renderRects() {
+    overlay.innerHTML = '';
+    layoutOverlay();
+    for (const r of state.rects) {
                   const el = document.createElement('div');
                   el.className = 'rect' + (overlay.dataset.selected === r.id ? ' selected' : '');
                   el.dataset.id = r.id;
@@ -359,6 +391,14 @@ def make_builder_app() -> gr.Blocks:
                   el.style.width  = (r.w * state.img.naturalW) + 'px';
                   el.style.height = (r.h * state.img.naturalH) + 'px';
                   el.onclick = (ev) => { ev.stopPropagation(); setMode('select'); selectRect(r.id); };
+                  // Render horizontal separators
+                  const seps = Array.isArray(r.seps) ? r.seps : [];
+                  for (let i=0;i<seps.length;i++){
+                    const yRel = Math.max(0, Math.min(1, +seps[i] || 0));
+                    const s = document.createElement('div'); s.className = 'sep-line'; s.dataset.idx = String(i);
+                    s.style.top = (yRel * (r.h * state.img.naturalH)) + 'px';
+                    el.appendChild(s);
+                  }
                   // Add resize handles if selected
                   if (overlay.dataset.selected === r.id) {
                     const cursors = { nw:'nwse-resize', n:'ns-resize', ne:'nesw-resize', e:'ew-resize', se:'nwse-resize', s:'ns-resize', sw:'nesw-resize', w:'ew-resize' };
@@ -382,9 +422,44 @@ def make_builder_app() -> gr.Blocks:
                       el.appendChild(h);
                     }
                   }
-                  overlay.appendChild(el);
-                }
-              }
+      overlay.appendChild(el);
+    }
+  }
+
+  function renderSepsInspector(r){
+    if (!sepsList) return;
+    sepsList.innerHTML = '';
+    if (!r) return;
+    const H = state.img.naturalH;
+    const seps = Array.isArray(r.seps) ? r.seps : [];
+    seps.forEach((rel, idx) => {
+      const row = document.createElement('div'); row.className = 'sep-item';
+      const px = Math.round((rel||0)*(r.h*H));
+      row.innerHTML = `
+        <input type="number" class="sep-px" data-idx="${idx}" value="${px}" min="0" step="1" />
+        <button class="sep-del" data-idx="${idx}" title="Remove">×</button>
+      `;
+      sepsList.appendChild(row);
+    });
+    sepsList.oninput = (ev) => {
+      const cur = state.rects.find(x=>x.id===overlay.dataset.selected); if (!cur) return;
+      const idx = +ev.target.getAttribute('data-idx'); if (Number.isNaN(idx)) return;
+      if (!Array.isArray(cur.seps)) cur.seps = [];
+      if (ev.target.classList.contains('sep-px')){
+        const Ht = Math.max(1, cur.h*H);
+        let v = Math.max(0, Math.min(Ht, +ev.target.value||0));
+        cur.seps[idx] = v / Ht;
+      }
+      renderRects(); markDirty(true);
+    };
+    sepsList.onclick = (ev) => {
+      if (!ev.target.classList.contains('sep-del')) return;
+      const cur = state.rects.find(x=>x.id===overlay.dataset.selected); if (!cur) return;
+      const idx = +ev.target.getAttribute('data-idx'); if (Number.isNaN(idx)) return;
+      if (Array.isArray(cur.seps)) cur.seps.splice(idx,1);
+      renderSepsInspector(cur); renderRects(); markDirty(true);
+    };
+  }
 
               btnSave.onclick = async () => { await doSave(); };
 
@@ -423,14 +498,37 @@ def make_builder_app() -> gr.Blocks:
               // Toolbar
               modeSelect.onclick = () => setMode('select');
               modeDraw.onclick = () => setMode('draw');
+              if (modeSplit) modeSplit.onclick = () => setMode('split');
               setMode('draw');
+
+              function updateZoomUI(){
+                try {
+                  const v = Math.round(state.zoom * 100);
+                  zoomRange.value = String(v);
+                  zoomLabel.textContent = `${v}%`;
+                } catch {}
+              }
+
+              function setZoom(newZoom, anchorX=null, anchorY=null){
+                const minZ = 0.2, maxZ = 5;
+                newZoom = Math.max(minZ, Math.min(maxZ, +newZoom || 1));
+                const rect = workspace.getBoundingClientRect();
+                const px = (anchorX == null ? rect.width/2 : anchorX);
+                const py = (anchorY == null ? rect.height/2 : anchorY);
+                // Keep the point under the cursor stable while zooming
+                const ix = (px - state.panX) / (state.zoom || 1);
+                const iy = (py - state.panY) / (state.zoom || 1);
+                state.zoom = newZoom;
+                state.panX = Math.floor(px - ix * state.zoom);
+                state.panY = Math.floor(py - iy * state.zoom);
+                applyTransform();
+                updateZoomUI();
+                renderRects();
+              }
 
               zoomRange.oninput = () => {
                 const v = Math.max(20, Math.min(300, +zoomRange.value || 100));
-                zoomLabel.textContent = `${v}%`;
-                state.zoom = v / 100;
-                applyTransform();
-                renderRects();
+                setZoom(v/100);
               };
 
               // Title changes mark dirty; save is explicit via button
@@ -443,6 +541,24 @@ def make_builder_app() -> gr.Blocks:
               let resizing = null; // {id, pos, startX, startY, rx, ry, rw, rh}
 
               const workspace = document.getElementById('workspace');
+              // Wheel / trackpad zoom (including pinch on many browsers)
+              workspace.addEventListener('wheel', (ev) => {
+                ev.preventDefault();
+                const rect = workspace.getBoundingClientRect();
+                const px = ev.clientX - rect.left; const py = ev.clientY - rect.top;
+                const factor = Math.exp(-(ev.deltaY || 0) * 0.001);
+                setZoom(state.zoom * factor, px, py);
+              }, { passive: false });
+
+              // Safari pinch gesture fallback
+              let _pinch = null;
+              workspace.addEventListener('gesturestart', (ev) => { ev.preventDefault(); _pinch = { z: state.zoom }; }, { passive: false });
+              workspace.addEventListener('gesturechange', (ev) => {
+                ev.preventDefault();
+                const rect = workspace.getBoundingClientRect();
+                setZoom((_pinch?.z || state.zoom) * (ev.scale || 1), rect.width/2, rect.height/2);
+              }, { passive: false });
+              workspace.addEventListener('gestureend', () => { _pinch = null; }, { passive: true });
               workspace.addEventListener('mousedown', (ev) => {
                 if (state.mode !== 'select') return;
                 // ignore rectangle body and resize handles
@@ -469,7 +585,22 @@ def make_builder_app() -> gr.Blocks:
                 const gy = percentClamp(py / (state.img.naturalH * state.zoom));
                 // Resize handle?
                 const h = ev.target.closest ? ev.target.closest('.handle') : null;
-                const rectEl = ev.target.classList && ev.target.classList.contains('rect') ? ev.target : (h ? h.parentElement : null);
+                const sep = ev.target.closest ? ev.target.closest('.sep-line') : null;
+                const rectEl = ev.target.classList && ev.target.classList.contains('rect') ? ev.target : (h ? h.parentElement : (sep ? sep.parentElement : null));
+                if (state.mode === 'split' && rectEl && !h) {
+                  const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
+                  // Ensure this rect is selected and inspector is open
+                  if ((overlay.dataset.selected || '') !== id) {
+                    selectRect(id);
+                  }
+                  const rel = Math.max(0, Math.min(1, (gy - r.y) / Math.max(0.0001, r.h)));
+                  if (!Array.isArray(r.seps)) r.seps = [];
+                  r.seps.push(rel); r.seps.sort((a,b)=>a-b);
+                  renderRects();
+                  try { renderSepsInspector(r); } catch {}
+                  markDirty(true);
+                  ev.preventDefault(); ev.stopPropagation(); return;
+                }
                 if (state.mode === 'select' && h && rectEl) {
                   const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
                   resizing = { id, pos: h.dataset.pos, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
@@ -542,7 +673,7 @@ def make_builder_app() -> gr.Blocks:
                   const w = Math.abs(x2 - drawing.startX), h = Math.abs(y2 - drawing.startY);
                   if (w > 0.002 && h > 0.002) {
                     const id = 'r-' + Math.random().toString(36).slice(2, 9);
-                    const rect = { id, name: '', x, y, w, h, extract_text: true };
+                  const rect = { id, name: '', x, y, w, h, extract_text: true, diacritics: false };
                     state.rects.push(rect);
                     selectRect(id);
                     markDirty(true);
@@ -555,8 +686,18 @@ def make_builder_app() -> gr.Blocks:
                 if (resizing) { resizing = null; markDirty(true); return; }
               });
 
+              // Shift+click inside selected rectangle to add a separator line
               overlay.addEventListener('click', (ev) => {
                 if (state.mode === 'draw') return; // drawing handles its own
+                const rectEl = ev.target.closest && ev.target.closest('.rect');
+                if (ev.shiftKey && rectEl) {
+                  const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
+                  const box = rectEl.getBoundingClientRect();
+                  const rel = Math.max(0, Math.min(1, (ev.clientY - box.top) / Math.max(1, box.height)));
+                  if (!Array.isArray(r.seps)) r.seps = [];
+                  r.seps.push(rel); r.seps.sort((a,b)=>a-b);
+                  renderRects(); try { renderSepsInspector(r); } catch {} markDirty(true); ev.preventDefault(); return;
+                }
                 if (ev.target === overlay) selectRect('');
               });
 
@@ -570,6 +711,14 @@ def make_builder_app() -> gr.Blocks:
                 const r = state.rects.find(x => x.id === id);
                 if (!r) return; r.extract_text = !!rectExtract.checked; markDirty(true);
               };
+              try {
+                const rectDiacritics = document.getElementById('rect-diacritics');
+                rectDiacritics.onchange = () => {
+                  const id = overlay.dataset.selected || '';
+                  const r = state.rects.find(x => x.id === id);
+                  if (!r) return; r.diacritics = !!rectDiacritics.checked; markDirty(true);
+                };
+              } catch {}
               function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
               function applyRectEdits(){
                 const id = overlay.dataset.selected || '';
