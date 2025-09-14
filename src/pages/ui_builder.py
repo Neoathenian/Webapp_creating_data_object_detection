@@ -538,6 +538,8 @@ def make_builder_app() -> gr.Blocks:
                   renderRects();
                   selectRect('');
                   markDirty(false);
+                  // Seed history so Undo works from first edit
+                  try { history.undo = []; history.redo = []; history.undo.push(cloneRects()); } catch {}
                 } catch {
                   console.warn('Failed to load API');
                 }
@@ -650,6 +652,7 @@ def make_builder_app() -> gr.Blocks:
                 const sep = ev.target.closest ? ev.target.closest('.sep-line') : null;
                 const rectEl = ev.target.classList && ev.target.classList.contains('rect') ? ev.target : (h ? h.parentElement : (sep ? sep.parentElement : null));
                 if (state.mode === 'split' && rectEl && !h) {
+                  try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                   const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
                   // Ensure this rect is selected and inspector is open
                   if ((overlay.dataset.selected || '') !== id) {
@@ -664,13 +667,13 @@ def make_builder_app() -> gr.Blocks:
                   ev.preventDefault(); ev.stopPropagation(); return;
                 }
                 if (h && rectEl) {
-                  history.undo.push(cloneRects()); history.redo.length = 0;
+                  try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                   const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
                   resizing = { id, pos: h.dataset.pos, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
                   ev.preventDefault(); ev.stopPropagation(); return;
                 }
                 if (state.mode === 'select' && rectEl) {
-                  history.undo.push(cloneRects()); history.redo.length = 0;
+                  try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                   const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
                   selectRect(id);
                   moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
@@ -736,6 +739,7 @@ def make_builder_app() -> gr.Blocks:
                   const x = Math.min(drawing.startX, x2), y = Math.min(drawing.startY, y2);
                   const w = Math.abs(x2 - drawing.startX), h = Math.abs(y2 - drawing.startY);
                   if (w > 0.002 && h > 0.002) {
+                    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                     const id = 'r-' + Math.random().toString(36).slice(2, 9);
                   const rect = { id, name: '', x, y, w, h, extract_text: true, diacritics: false };
                     state.rects.push(rect);
@@ -766,11 +770,13 @@ def make_builder_app() -> gr.Blocks:
               });
 
               rectName.oninput = () => {
+                try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                 const id = overlay.dataset.selected || '';
                 const r = state.rects.find(x => x.id === id);
                 if (!r) return; r.name = rectName.value || ''; markDirty(true);
               };
               rectExtract.onchange = () => {
+                try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                 const id = overlay.dataset.selected || '';
                 const r = state.rects.find(x => x.id === id);
                 if (!r) return; r.extract_text = !!rectExtract.checked; markDirty(true);
@@ -778,6 +784,7 @@ def make_builder_app() -> gr.Blocks:
               try {
                 const rectDiacritics = document.getElementById('rect-diacritics');
                 rectDiacritics.onchange = () => {
+                  try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                   const id = overlay.dataset.selected || '';
                   const r = state.rects.find(x => x.id === id);
                   if (!r) return; r.diacritics = !!rectDiacritics.checked; markDirty(true);
@@ -785,6 +792,7 @@ def make_builder_app() -> gr.Blocks:
               } catch {}
               function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
               function applyRectEdits(){
+                try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                 const id = overlay.dataset.selected || '';
                 const r = state.rects.find(x => x.id === id);
                 if (!r) return;
@@ -798,6 +806,7 @@ def make_builder_app() -> gr.Blocks:
               }
               rectX.onchange = rectY.onchange = rectW.onchange = rectH.onchange = applyRectEdits;
               btnDelRect.onclick = () => {
+                try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
                 const id = overlay.dataset.selected || '';
                 if (!id) return;
                 state.rects = state.rects.filter(x => x.id !== id);
