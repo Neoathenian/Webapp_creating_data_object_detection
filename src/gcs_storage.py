@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, Optional, Tuple
 
 from google.cloud import storage
 from google.oauth2 import service_account
+from datetime import timedelta
 
 
 # Defaults can be overridden via env vars without touching code
@@ -147,3 +148,16 @@ def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]
             continue
     return None
 
+
+def signed_url(blob_name: str, minutes: int = 15) -> Optional[str]:
+    """Generate a V4 signed URL for GET; return None on failure."""
+    try:
+        bucket = get_bucket()
+        blob = bucket.blob(blob_name)
+        return blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=max(1, int(minutes))),
+            method="GET",
+        )
+    except Exception:
+        return None

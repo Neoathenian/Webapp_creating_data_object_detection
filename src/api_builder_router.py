@@ -20,6 +20,7 @@ from src.gcs_storage import (
     is_name_taken,
     find_doc_by_id,
     copy_blob,
+    signed_url,
 )
 
 
@@ -110,8 +111,14 @@ def list_apis(request: Request):
     items = _list_user_apis(uid)
     # Attach image_url and strip heavy fields for list view
     for it in items:
-        it["image_url"] = f"/builder/images/{it.get('id')}"
-        it.pop("rects", None)
+        # Prefer signed URL for faster direct load
+        url = None
+        try:
+            url = signed_url(it.get("image_blob") or "", minutes=20)
+        except Exception:
+            url = None
+        it["image_url"] = url or f"/builder/images/{it.get('id')}"
+        # Keep rects in the payload so the client can cache all docs at load time
     items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return items
 
@@ -158,7 +165,12 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
     }
     _save_api(doc)
 
-    doc["image_url"] = f"/builder/images/{api_id}"
+    url = None
+    try:
+        url = signed_url(img_blob, minutes=20)
+    except Exception:
+        url = None
+    doc["image_url"] = url or f"/builder/images/{api_id}"
     return doc
 
 
@@ -168,7 +180,12 @@ def get_api(api_id: str, request: Request):
     doc = _load_api(uid, api_id)
     if doc.get("user_id") != uid:
         raise HTTPException(status_code=403, detail="Forbidden")
-    doc["image_url"] = f"/builder/images/{api_id}"
+    url = None
+    try:
+        url = signed_url(doc.get("image_blob") or "", minutes=20)
+    except Exception:
+        url = None
+    doc["image_url"] = url or f"/builder/images/{api_id}"
     return doc
 
 
@@ -231,7 +248,13 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
         doc["updated_at"] = _now_iso()
         _save_api(doc)
 
-    doc["image_url"] = f"/builder/images/{api_id}"
+    # Prefer a signed URL for faster reloads post-save
+    url = None
+    try:
+        url = signed_url(doc.get("image_blob") or "", minutes=20)
+    except Exception:
+        url = None
+    doc["image_url"] = url or f"/builder/images/{api_id}"
     return doc
 
 
@@ -267,4 +290,7 @@ def fetch_image(api_id: str, request: Request):
         ctype = "image/webp"
     elif ".gif" in img_blob:
         ctype = "image/gif"
-    return Response(content=data, media_type=ctype)
+    # Add a short cache to reduce repeat downloads while editing
+    resp = Response(content=data, media_type=ctype)
+    resp.headers["Cache-Control"] = "private, max-age=60"
+    return resp

@@ -68,6 +68,7 @@ def make_builder_app() -> gr.Blocks:
               #workspace.mode-select { cursor: default; }
               #workspace.mode-draw, #overlay.mode-draw { cursor: crosshair; }
               #workspace.mode-split, #overlay.mode-split { cursor: row-resize; }
+              #overlay.disabled { pointer-events: none; }
               .workspace.grabbing { cursor: grabbing; }
               .stage { position: absolute; left: 0; top: 0; transform-origin: top left; user-select: none; }
               .stage img { display:block; max-width: none; }
@@ -251,6 +252,7 @@ def make_builder_app() -> gr.Blocks:
                 zoom: 1,
                 img: { naturalW: 0, naturalH: 0 },
                 dirty: false,
+                loaded: false,
               };
 
               // Elements
@@ -300,8 +302,18 @@ def make_builder_app() -> gr.Blocks:
               async function doSave(){
                 if (!state.selected) return true;
                 try{
-                  await fetch(`/builder/apis/${state.selected}`,{ method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: titleInp.value || 'Untitled API', rects: state.rects }) });
-                  markDirty(false); await refreshList(); return true;
+                  const r = await fetch(`/builder/apis/${state.selected}`,{
+                    method:'PUT', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ name: titleInp.value || 'Untitled API', rects: state.rects })
+                  });
+                  if (!r.ok) throw new Error('save');
+                  const doc = await r.json();
+                  // Update local cache entry
+                  const i = state.apis.findIndex(a=>a.id===doc.id);
+                  if (i>=0) state.apis[i] = doc; else state.apis.unshift(doc);
+                  renderList();
+                  markDirty(false);
+                  return true;
                 }catch{ return false; }
               }
 
@@ -350,13 +362,14 @@ def make_builder_app() -> gr.Blocks:
                 listEl.innerHTML = '';
                 for (const it of state.apis) {
                   const li = document.createElement('li');
-                  li.className = 'sidebar-item' + (it.id === state.selected ? ' active' : '');
+                  li.className = 'sidebar-item' + (it.id === state.selected ? ' active' : '') + (it.pending ? ' pending' : '');
                   li.dataset.id = it.id;
                   const thumb = document.createElement('div'); thumb.className = 'thumb';
                   const img = document.createElement('img'); img.src = it.image_url; thumb.appendChild(img);
                   const label = document.createElement('div'); label.textContent = it.name || 'Untitled';
                   li.appendChild(thumb); li.appendChild(label);
                   li.onclick = async () => {
+                    if (it.pending) return; // ignore clicks while uploading
                     if (state.dirty) {
                       if (confirm('You have unsaved changes. Save before switching?')) { const ok = await doSave(); if (!ok) return; }
                       else { markDirty(false); }
@@ -367,13 +380,14 @@ def make_builder_app() -> gr.Blocks:
                 }
               }
 
-              async function refreshList(selectId = null) {
+              async function fetchAll() {
                 try {
                   const r = await fetch('/builder/apis');
                   const j = await r.json();
                   state.apis = Array.isArray(j) ? j : [];
-                } catch { state.apis = []; }
-                if (selectId) state.selected = selectId; else if (state.selected && !state.apis.find(a => a.id === state.selected)) state.selected = null;
+                  state.loaded = true;
+                } catch { state.apis = []; state.loaded = true; }
+                if (state.selected && !state.apis.find(a=>a.id===state.selected)) state.selected = null;
                 renderList();
               }
 
@@ -513,36 +527,31 @@ def make_builder_app() -> gr.Blocks:
               btnSave.onclick = async () => { await doSave(); };
 
               async function loadApi(id) {
+                const doc = state.apis.find(a => a.id === id);
+                if (!doc) { console.warn('API not found in cache'); return; }
+                state.selected = id;
+                state.rects = Array.isArray(doc.rects) ? doc.rects : [];
+                titleInp.value = doc.name || 'Untitled API';
+                hint.style.display = 'none';
+                stage.style.display = 'block';
+                img.src = doc.image_url;
+                // Wait image load to set sizes
+                await new Promise((res) => { if (img.complete) res(); else img.onload = res; });
+                state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
+                // Reset zoom to fit container
                 try {
-                  const r = await fetch(`/builder/apis/${id}`);
-                  if (!r.ok) throw new Error('fetch');
-                  const doc = await r.json();
-                  state.selected = id;
-                  state.rects = Array.isArray(doc.rects) ? doc.rects : [];
-                  titleInp.value = doc.name || 'Untitled API';
-                  hint.style.display = 'none';
-                  stage.style.display = 'block';
-                  img.src = doc.image_url;
-                  // Wait image load to set sizes
-                  await new Promise((res) => { if (img.complete) res(); else img.onload = res; });
-                  state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
-                  // Reset zoom to fit container
-                  try {
-                    const wrap = document.getElementById('workspace');
-                    const pad = 24;
-                    const fit = Math.min( (wrap.clientWidth - pad) / state.img.naturalW, (wrap.clientHeight - pad) / state.img.naturalH ) || 1;
-                    const pct = Math.max(0.2, Math.min(3, fit));
-                    state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
-                  } catch {}
-                  centerStage();
-                  renderRects();
-                  selectRect('');
-                  markDirty(false);
-                  // Seed history so Undo works from first edit
-                  try { history.undo = []; history.redo = []; history.undo.push(cloneRects()); } catch {}
-                } catch {
-                  console.warn('Failed to load API');
-                }
+                  const wrap = document.getElementById('workspace');
+                  const pad = 24;
+                  const fit = Math.min( (wrap.clientWidth - pad) / state.img.naturalW, (wrap.clientHeight - pad) / state.img.naturalH ) || 1;
+                  const pct = Math.max(0.2, Math.min(3, fit));
+                  state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
+                } catch {}
+                centerStage();
+                renderRects();
+                selectRect('');
+                markDirty(false);
+                // Seed history so Undo works from first edit
+                try { history.undo = []; history.redo = []; history.undo.push(cloneRects()); } catch {}
                 renderList();
               }
 
@@ -834,16 +843,49 @@ def make_builder_app() -> gr.Blocks:
               btnCreateFromUpload.onclick = async () => {
                 const inp = apiImageInput();
                 if (!inp || !inp.files || !inp.files[0]) { alert('Please choose an image'); return; }
-                const fd = new FormData(); fd.append('image', inp.files[0]); fd.append('name', titleInp.value || 'Untitled API');
+                const file = inp.files[0];
+                // Show instant local preview to avoid waiting for upload
+                try {
+                  const localURL = URL.createObjectURL(file);
+                  hint.style.display = 'none';
+                  createArea.style.display = 'none';
+                  stage.style.display = 'block';
+                  img.src = localURL;
+                } catch {}
+
+                // Temporarily disable interactions while uploading
+                try { overlay.style.pointerEvents = 'none'; } catch {}
+                try { btnSave.disabled = true; } catch {}
+                try { modeDraw.disabled = true; modeSelect.disabled = true; if (modeSplit) modeSplit.disabled = true; } catch {}
+
+                // Optimistically add a placeholder entry to the left panel
+                const tmpId = 'pending-' + Math.random().toString(36).slice(2,8);
+                const placeholder = { id: tmpId, name: 'New API', image_url: img.src, rects: [] , pending: true };
+                state.apis.unshift(placeholder); renderList();
+
+                const fd = new FormData(); fd.append('image', file);
                 try {
                   const r = await fetch('/builder/apis', { method: 'POST', body: fd });
                   if (!r.ok) throw new Error('upload');
                   const doc = await r.json();
+                  // Replace placeholder with real doc
+                  const idx = state.apis.findIndex(a=>a.id===tmpId);
+                  if (idx>=0) state.apis.splice(idx,1,doc); else state.apis.unshift(doc);
+                  renderList();
+                  // Re-enable interactions and load real doc (with signed URL)
+                  try { overlay.style.pointerEvents = ''; } catch {}
+                  try { modeDraw.disabled = false; modeSelect.disabled = false; if (modeSplit) modeSplit.disabled = false; } catch {}
                   hideCreate();
-                  await refreshList(doc.id);
                   await loadApi(doc.id);
                   setMode('draw');
-                } catch (e) { alert('Failed to create API'); }
+                } catch (e) {
+                  alert('Failed to create API');
+                  // Remove placeholder on failure
+                  const idx = state.apis.findIndex(a=>a.id===tmpId);
+                  if (idx>=0) { state.apis.splice(idx,1); renderList(); }
+                  try { overlay.style.pointerEvents = ''; } catch {}
+                  try { modeDraw.disabled = false; modeSelect.disabled = false; if (modeSplit) modeSplit.disabled = false; } catch {}
+                }
               };
 
               // Auto-create when a file is picked (no need to press Create)
@@ -857,7 +899,7 @@ def make_builder_app() -> gr.Blocks:
               })();
 
               // Init
-              await refreshList();
+              await fetchAll();
               clearSelection();
             }
             """,
