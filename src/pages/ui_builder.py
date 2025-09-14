@@ -315,7 +315,9 @@ def make_builder_app() -> gr.Blocks:
                     y: Math.round(r.y * H),
                     w: Math.round(r.w * W),
                     h: Math.round(r.h * H),
-                    seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * r.h * H)) : []
+                    seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * r.h * H)) : [],
+                    extract_text: !!r.extract_text,
+                    diacritics: !!r.diacritics
                   }));
                   const r = await fetch(`/builder/apis/${state.selected}`,{
                     method:'PUT', headers:{'Content-Type':'application/json'},
@@ -545,19 +547,30 @@ def make_builder_app() -> gr.Blocks:
                 const doc = state.apis.find(a => a.id === id);
                 if (!doc) { console.warn('API not found in cache'); return; }
                 state.selected = id;
-                state.rects = Array.isArray(doc.rects) ? doc.rects : [];
-                titleInp.value = doc.name || 'Untitled API';
+                // Wait image load to set sizes without altering user zoom
                 hint.style.display = 'none';
                 stage.style.display = 'block';
                 img.src = doc.image_url;
-                // Wait image load to set sizes without altering user zoom
                 await new Promise((res) => { if (img.complete) res(); else img.onload = res; });
                 state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
+                // Convert pixel rects to normalized rects for display
+                const W = state.img.naturalW, H = state.img.naturalH;
+                state.rects = Array.isArray(doc.rects) ? doc.rects.map(r => ({
+                  ...r,
+                  x: r.x / W,
+                  y: r.y / H,
+                  w: r.w / W,
+                  h: r.h / H,
+                  seps: Array.isArray(r.seps) ? r.seps.map(s => (r.h ? s / r.h : 0) / H) : [],
+                  extract_text: !!r.extract_text,
+                  diacritics: !!r.diacritics
+                })) : [];
+                titleInp.value = doc.name || 'Untitled API';
                 if (!state._hasInteracted) {
                   try {
                     const wrap = document.getElementById('workspace');
                     const pad = 24;
-                    const fit = Math.min( (wrap.clientWidth - pad) / state.img.naturalW, (wrap.clientHeight - pad) / state.img.naturalH ) || 1;
+                    const fit = Math.min( (wrap.clientWidth - pad) / W, (wrap.clientHeight - pad) / H ) || 1;
                     const pct = Math.max(0.2, Math.min(3, fit));
                     state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
                   } catch {}
