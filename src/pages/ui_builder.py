@@ -307,9 +307,19 @@ def make_builder_app() -> gr.Blocks:
               async function doSave(){
                 if (!state.selected) return true;
                 try{
+                  // Convert rects to pixel units before sending
+                  const W = state.img.naturalW, H = state.img.naturalH;
+                  const pixelRects = (state.rects || []).map(r => ({
+                    ...r,
+                    x: Math.round(r.x * W),
+                    y: Math.round(r.y * H),
+                    w: Math.round(r.w * W),
+                    h: Math.round(r.h * H),
+                    seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * r.h * H)) : []
+                  }));
                   const r = await fetch(`/builder/apis/${state.selected}`,{
                     method:'PUT', headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify({ name: titleInp.value || 'Untitled API', rects: state.rects })
+                    body: JSON.stringify({ name: titleInp.value || 'Untitled API', rects: pixelRects })
                   });
                   if (!r.ok) throw new Error('save');
                   const doc = await r.json();

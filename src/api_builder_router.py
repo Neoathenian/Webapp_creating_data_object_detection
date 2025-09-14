@@ -57,12 +57,12 @@ class Rect(BaseModel):
     id: str
     name: str = ""
     x: float = Field(ge=0, le=1)
-    y: float = Field(ge=0, le=1)
-    w: float = Field(ge=0, le=1)
-    h: float = Field(ge=0, le=1)
-    extract_text: bool = True
-    diacritics: bool = False
-    # Horizontal separators inside the rectangle (0..1 from top)
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    w: int = Field(ge=1)
+    h: int = Field(ge=1)
+    # Horizontal separators inside the rectangle (pixels from top)
+    seps: List[int] = Field(default_factory=list)
     seps: List[float] = Field(default_factory=list)
 
 
@@ -240,8 +240,21 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
                 pass
             changed = False  # already saved
     if upd.rects is not None:
-        # Coerce to plain dicts
-        doc["rects"] = [r.model_dump() if isinstance(r, Rect) else r for r in upd.rects]
+        # Coerce to plain dicts and ensure pixel values are ints
+        pixel_rects = []
+        for r in upd.rects:
+            if isinstance(r, Rect):
+                d = r.model_dump()
+            else:
+                d = dict(r)
+            # Ensure pixel values are ints
+            d["x"] = int(round(d.get("x", 0)))
+            d["y"] = int(round(d.get("y", 0)))
+            d["w"] = int(round(d.get("w", 1)))
+            d["h"] = int(round(d.get("h", 1)))
+            d["seps"] = [int(round(s)) for s in d.get("seps", [])]
+            pixel_rects.append(d)
+        doc["rects"] = pixel_rects
         changed = True
 
     if changed:
