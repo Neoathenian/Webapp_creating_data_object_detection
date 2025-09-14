@@ -562,9 +562,9 @@ def make_builder_app() -> gr.Blocks:
                   w: r.w / W,
                   h: r.h / H,
                   seps: Array.isArray(r.seps) ? r.seps.map(s => (r.h ? s / r.h : 0) / H) : [],
-                  extract_text: !!r.extract_text,
-                  diacritics: !!r.diacritics
-                })) : [];
+                  extract_text: r.extract_text !== false,      // default TRUE ✅
+                  diacritics: !!r.diacritics                   // default FALSE already ✅
+                  })) : [];
                 titleInp.value = doc.name || 'Untitled API';
                 if (!state._hasInteracted) {
                   try {

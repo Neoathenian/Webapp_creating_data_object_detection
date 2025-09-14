@@ -63,8 +63,12 @@ class Rect(BaseModel):
     h: int = Field(ge=1)
     # Horizontal separators inside the rectangle (pixels from top)
     seps: List[int] = Field(default_factory=list)
-    seps: List[float] = Field(default_factory=list)
 
+    # NEW: flags you want to persist
+    extract_text: bool = True
+    diacritics: bool = False
+
+    
 
 class ApiMeta(BaseModel):
     id: str
