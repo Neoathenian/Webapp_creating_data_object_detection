@@ -30,20 +30,28 @@ def make_builder_app() -> gr.Blocks:
               .sidebar-item .thumb { width: 28px; height: 28px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; overflow: hidden; }
               .sidebar-item .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-              /* Center area */
-              #center { margin-left: var(--side); margin-right: 0; padding: 12px 24px; min-height: calc(100vh - var(--top)); }
-              #center.inspector-open { margin-right: var(--insp); }
+              /* Center area fixed to viewport so content starts at top without extra scroll */
+              #center {
+                position: fixed; top: var(--top); left: var(--side); right: 0; bottom: 0;
+                padding: 12px 24px; overflow: auto; display:flex; flex-direction: column;
+              }
+              #center.inspector-open { right: var(--insp); }
               .toolbar { display:flex; align-items:center; gap: 10px; margin: 8px 0 12px; flex-wrap: wrap; }
               .mode-btn { padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 8px; background:#fff; cursor:pointer; }
               .mode-btn.active { background: #eff6ff; border-color:#93c5fd; }
               .api-title { flex: 1; min-width: 220px; padding:8px; border:1px solid #d1d5db; border-radius:8px; }
               .zoom-wrap { display:flex; align-items:center; gap:6px; }
               .zoom-range { width: 180px; }
+              .save-btn { padding: 6px 12px; border-radius: 8px; border:1px solid #10b981; background:#10b981; color:#fff; cursor:pointer; }
+              .save-btn[disabled] { opacity:.5; cursor:not-allowed; }
 
-              .workspace { position: relative; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; min-height: 70vh; display:flex; align-items:center; justify-content:center; overflow: auto; }
-              .stage { position: relative; transform-origin: top left; user-select: none; }
+              .workspace { position: relative; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; flex: 1 1 auto; display:block; overflow: hidden; min-height: 0; }
+              .workspace.grab { cursor: grab; }
+              .workspace.grabbing { cursor: grabbing; }
+              .stage { position: absolute; left: 0; top: 0; transform-origin: top left; user-select: none; }
               .stage img { display:block; max-width: none; }
-              .overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+              /* overlay must receive pointer events for drawing */
+              .overlay { position: absolute; left: 0; top: 0; pointer-events: auto; }
               .rect { position: absolute; border: 2px solid #2563eb; background: rgba(37,99,235,0.05); box-sizing: border-box; pointer-events: auto; border-radius: 2px; }
               .rect.selected { border-color: #ef4444; background: rgba(239,68,68,0.06); }
               .hint { color:#6b7280; text-align:center; padding: 20px; }
@@ -92,6 +100,7 @@ def make_builder_app() -> gr.Blocks:
                 <button id='mode-select' class='mode-btn active' data-mode='select'>Select</button>
                 <button id='mode-draw' class='mode-btn' data-mode='draw'>Draw</button>
                 <span class='zoom-wrap'>Zoom <input id='zoom-range' class='zoom-range' type='range' min='20' max='300' value='100' /> <span id='zoom-label'>100%</span></span>
+                <button id='btn-save' class='save-btn' disabled>Save</button>
               </div>
               <div class='create-area' id='create-area'>
                 <div style='margin-bottom:6px;color:#374151;'>Upload an image to start a new API</div>
@@ -101,13 +110,13 @@ def make_builder_app() -> gr.Blocks:
                   <button id='btn-cancel-create' class='btn'>Cancel</button>
                 </div>
               </div>
-              <div class='workspace' id='workspace'>
-                <div class='hint' id='workspace-hint'>Select an API from the left or create a new one.</div>
-                <div class='stage' id='stage' style='display:none;'>
-                  <img id='workspace-img' src='' alt='document' />
-                  <div class='overlay' id='overlay'></div>
+                <div class='workspace grab' id='workspace'>
+                  <div class='hint' id='workspace-hint'>Select an API from the left or create a new one.</div>
+                  <div class='stage' id='stage' style='display:none;'>
+                    <img id='workspace-img' src='' alt='document' />
+                    <div class='overlay' id='overlay'></div>
+                  </div>
                 </div>
-              </div>
             </div>
             """
         )
@@ -150,7 +159,8 @@ def make_builder_app() -> gr.Blocks:
                 rects: [],
                 mode: 'select',
                 zoom: 1,
-                img: { naturalW: 0, naturalH: 0 }
+                img: { naturalW: 0, naturalH: 0 },
+                dirty: false,
               };
 
               // Elements
@@ -176,6 +186,19 @@ def make_builder_app() -> gr.Blocks:
               const btnCancelCreate = document.getElementById('btn-cancel-create');
               const inspector = document.getElementById('inspector');
               const center = document.getElementById('center');
+              const btnSave = document.getElementById('btn-save');
+
+              function markDirty(d=true){ state.dirty=!!d; btnSave.disabled = !state.dirty || !state.selected; }
+
+              async function doSave(){
+                if (!state.selected) return true;
+                try{
+                  await fetch(`/builder/apis/${state.selected}`,{ method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: titleInp.value || 'Untitled API', rects: state.rects }) });
+                  markDirty(false); await refreshList(); return true;
+                }catch{ return false; }
+              }
+
+              window.addEventListener('beforeunload', (e)=>{ if(state.dirty){ e.preventDefault(); e.returnValue=''; return ''; } });
 
               // Move uploader into slot once
               if (hiddenMount && slot && !slot.hasChildNodes()) {
@@ -209,7 +232,13 @@ def make_builder_app() -> gr.Blocks:
                   const img = document.createElement('img'); img.src = it.image_url; thumb.appendChild(img);
                   const label = document.createElement('div'); label.textContent = it.name || 'Untitled';
                   li.appendChild(thumb); li.appendChild(label);
-                  li.onclick = () => loadApi(it.id);
+                  li.onclick = async () => {
+                    if (state.dirty) {
+                      if (confirm('You have unsaved changes. Save before switching?')) { const ok = await doSave(); if (!ok) return; }
+                      else { markDirty(false); }
+                    }
+                    await loadApi(it.id);
+                  };
                   listEl.appendChild(li);
                 }
               }
@@ -254,6 +283,21 @@ def make_builder_app() -> gr.Blocks:
                 overlay.style.height = (state.img.naturalH) + 'px';
               }
 
+              function applyTransform(){
+                const st = document.getElementById('stage');
+                st.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+              }
+
+              function centerStage() {
+                const wrap = document.getElementById('workspace');
+                const w = wrap.clientWidth, h = wrap.clientHeight;
+                const sw = state.img.naturalW * state.zoom;
+                const sh = state.img.naturalH * state.zoom;
+                state.panX = Math.floor((w - sw) / 2);
+                state.panY = Math.floor((h - sh) / 2);
+                applyTransform();
+              }
+
               function renderRects() {
                 overlay.innerHTML = '';
                 layoutOverlay();
@@ -270,20 +314,7 @@ def make_builder_app() -> gr.Blocks:
                 }
               }
 
-              let saveTimer = null;
-              function scheduleSave() {
-                if (!state.selected) return;
-                if (saveTimer) window.clearTimeout(saveTimer);
-                saveTimer = window.setTimeout(async () => {
-                  try {
-                    await fetch(`/builder/apis/${state.selected}` , {
-                      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ name: titleInp.value || 'Untitled API', rects: state.rects })
-                    });
-                    refreshList();
-                  } catch {}
-                }, 350);
-              }
+              btnSave.onclick = async () => { await doSave(); };
 
               async function loadApi(id) {
                 try {
@@ -306,10 +337,11 @@ def make_builder_app() -> gr.Blocks:
                     const fit = Math.min( (wrap.clientWidth - pad) / state.img.naturalW, (wrap.clientHeight - pad) / state.img.naturalH ) || 1;
                     const pct = Math.max(0.2, Math.min(3, fit));
                     state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
-                    const st = document.getElementById('stage'); st.style.transform = `scale(${state.zoom})`;
                   } catch {}
+                  centerStage();
                   renderRects();
                   selectRect('');
+                  markDirty(false);
                 } catch {
                   console.warn('Failed to load API');
                 }
@@ -325,13 +357,34 @@ def make_builder_app() -> gr.Blocks:
                 const v = Math.max(20, Math.min(300, +zoomRange.value || 100));
                 zoomLabel.textContent = `${v}%`;
                 state.zoom = v / 100;
-                const st = document.getElementById('stage');
-                st.style.transform = `scale(${state.zoom})`;
+                applyTransform();
                 renderRects();
               };
 
-              // Drawing
+              // Title changes mark dirty; save is explicit via button
+              titleInp.oninput = () => { if (state.selected) markDirty(true); };
+
+              // Drawing & Panning
               let drawing = null; // {startX,startY,el}
+              let panning = null; // {sx,sy,px,py}
+
+              const workspace = document.getElementById('workspace');
+              workspace.addEventListener('mousedown', (ev) => {
+                if (state.mode !== 'select') return;
+                if (ev.target && ev.target.classList && ev.target.classList.contains('rect')) return;
+                panning = { sx: ev.clientX, sy: ev.clientY, px: state.panX, py: state.panY };
+                workspace.classList.add('grabbing');
+                ev.preventDefault();
+              });
+              window.addEventListener('mousemove', (ev) => {
+                if (!panning) return;
+                state.panX = panning.px + (ev.clientX - panning.sx);
+                state.panY = panning.py + (ev.clientY - panning.sy);
+                applyTransform();
+              });
+              window.addEventListener('mouseup', () => {
+                if (panning) { panning = null; workspace.classList.remove('grabbing'); }
+              });
               overlay.addEventListener('mousedown', (ev) => {
                 if (state.mode !== 'draw') return;
                 const box = img.getBoundingClientRect();
@@ -370,7 +423,7 @@ def make_builder_app() -> gr.Blocks:
                   const rect = { id, name: '', x, y, w, h, extract_text: true };
                   state.rects.push(rect);
                   selectRect(id);
-                  scheduleSave();
+                  markDirty(true);
                 } else {
                   try { drawing.el.remove(); } catch {}
                 }
@@ -385,18 +438,18 @@ def make_builder_app() -> gr.Blocks:
               rectName.oninput = () => {
                 const id = overlay.dataset.selected || '';
                 const r = state.rects.find(x => x.id === id);
-                if (!r) return; r.name = rectName.value || ''; scheduleSave();
+                if (!r) return; r.name = rectName.value || ''; markDirty(true);
               };
               rectExtract.onchange = () => {
                 const id = overlay.dataset.selected || '';
                 const r = state.rects.find(x => x.id === id);
-                if (!r) return; r.extract_text = !!rectExtract.checked; scheduleSave();
+                if (!r) return; r.extract_text = !!rectExtract.checked; markDirty(true);
               };
               btnDelRect.onclick = () => {
                 const id = overlay.dataset.selected || '';
                 if (!id) return;
                 state.rects = state.rects.filter(x => x.id !== id);
-                selectRect(''); renderRects(); scheduleSave();
+                selectRect(''); renderRects(); markDirty(true);
               };
 
               // New API flow
@@ -409,7 +462,13 @@ def make_builder_app() -> gr.Blocks:
                 createArea.style.display = 'none';
                 if (!state.selected) hint.style.display = 'block';
               }
-              btnNew.onclick = () => { showCreate(); };
+              btnNew.onclick = async () => {
+                if (state.dirty) {
+                  if (confirm('You have unsaved changes. Save before creating a new API?')) { const ok = await doSave(); if (!ok) return; }
+                  else { markDirty(false); }
+                }
+                showCreate();
+              };
               btnCancelCreate.onclick = () => { hideCreate(); };
               btnCreateFromUpload.onclick = async () => {
                 const inp = apiImageInput();
@@ -422,8 +481,19 @@ def make_builder_app() -> gr.Blocks:
                   hideCreate();
                   await refreshList(doc.id);
                   await loadApi(doc.id);
+                  setMode('draw');
                 } catch (e) { alert('Failed to create API'); }
               };
+
+              // Auto-create when a file is picked (no need to press Create)
+              (function hookAutoCreate(){
+                try {
+                  const el = document.getElementById('file-new-api-upload-up');
+                  if (!el || el._boundAutoCreate) return;
+                  el.addEventListener('change', () => { if (el.files && el.files[0]) btnCreateFromUpload.click(); });
+                  el._boundAutoCreate = true;
+                } catch {}
+              })();
 
               // Init
               await refreshList();
