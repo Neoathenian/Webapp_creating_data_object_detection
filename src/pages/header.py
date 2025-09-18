@@ -35,7 +35,7 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
         initial = html.escape((user.get("name") or user.get("email") or "?")[0].upper())
 
         avatar = (
-            f'<img class="avatar-img" src="{html.escape(photo)}" alt="{name}" />'
+            f'<img class="avatar-img" src="{html.escape(photo)}" alt="{name}" referrerpolicy="no-referrer" loading="lazy" />'
             if photo else f'<div class="avatar-circle">{initial}</div>'
         )
 
