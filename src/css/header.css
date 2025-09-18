@@ -89,6 +89,7 @@
 	padding: 0;
 	background: rgba(255,255,255,0.1);
 	border: 1px solid rgba(255,255,255,0.2);
+	margin-top: 2px;
 }
 .account-menu > summary:hover { background: rgba(255,255,255,0.2); }
 .avatar-img {
