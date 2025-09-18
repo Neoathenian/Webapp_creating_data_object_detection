@@ -166,17 +166,17 @@ async () => {
     renderList();
   }
 
-  function clearSelection() {
+  function clearSelection({ skipRender = false } = {}) {
     selPanel.style.display = 'none';
     rectName.value = '';
     rectExtract.checked = true;
     for (const el of overlay.querySelectorAll('.rect')) el.classList.remove('selected');
     overlay.dataset.selected = '';
     setInspectorOpen(false);
+    if (!skipRender) renderRects();
   }
 
   function selectRect(id) {
-    for (const el of overlay.querySelectorAll('.rect')) el.classList.toggle('selected', el.dataset.id === id);
     overlay.dataset.selected = id || '';
     const r = state.rects.find(x => x.id === id);
     if (r) {
@@ -191,8 +191,9 @@ async () => {
       rectH.value = Math.round(r.h * state.img.naturalH);
       try { renderSepsInspector(r); } catch {}
     } else {
-      clearSelection();
+      clearSelection({ skipRender: true });
     }
+    renderRects();
   }
 
   function layoutOverlay() {
@@ -451,7 +452,7 @@ function renderSepsInspector(r){
     const gy = percentClamp(py / (state.img.naturalH * state.zoom));
     history.undo.push(cloneRects()); history.redo.length = 0;
     selectRect(id);
-    moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
+    moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
     ev.preventDefault(); ev.stopPropagation();
   });
   overlay.addEventListener('mousedown', (ev) => {
@@ -481,14 +482,14 @@ function renderSepsInspector(r){
     if (h && rectEl) {
       try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
       const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
-      resizing = { id, pos: h.dataset.pos, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
+      resizing = { id, pos: h.dataset.pos, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
       ev.preventDefault(); ev.stopPropagation(); return;
     }
     if (state.mode === 'select' && rectEl) {
       try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
       const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
       selectRect(id);
-      moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h };
+      moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
       ev.preventDefault(); ev.stopPropagation(); return;
     }
     if (state.mode !== 'draw') return;
@@ -513,11 +514,25 @@ function renderSepsInspector(r){
       return;
     }
     if (moving) {
-      const r = state.rects.find(x=>x.id===moving.id); if(!r) return;
-      let dx = gx - moving.startX, dy = gy - moving.startY;
-      r.x = percentClamp(moving.rx + dx); r.y = percentClamp(moving.ry + dy);
+      if (ev.buttons !== undefined && (ev.buttons & 1) === 0) {
+        const moved = !!moving.changed;
+        moving = null;
+        if (moved) markDirty(true);
+        return;
+      }
+      const r = state.rects.find(x=>x.id===moving.id);
+      if(!r) { moving = null; return; }
+      const prevX = r.x, prevY = r.y;
+      const dx = gx - moving.startX, dy = gy - moving.startY;
+      let nextX = percentClamp(moving.rx + dx);
+      let nextY = percentClamp(moving.ry + dy);
       // clamp so rect stays inside
-      r.x = Math.min(r.x, 1 - r.w); r.y = Math.min(r.y, 1 - r.h);
+      nextX = Math.min(nextX, 1 - r.w);
+      nextY = Math.min(nextY, 1 - r.h);
+      if (!moving.changed && (Math.abs(nextX - prevX) > 0.0001 || Math.abs(nextY - prevY) > 0.0001)) {
+        moving.changed = true;
+      }
+      r.x = nextX; r.y = nextY;
       renderRects();
       // update inspector fields
       rectX.value = Math.round(r.x * state.img.naturalW);
@@ -525,7 +540,15 @@ function renderSepsInspector(r){
       return;
     }
     if (resizing) {
-      const r = state.rects.find(x=>x.id===resizing.id); if(!r) return;
+      if (ev.buttons !== undefined && (ev.buttons & 1) === 0) {
+        const resized = !!resizing.changed;
+        resizing = null;
+        if (resized) markDirty(true);
+        return;
+      }
+      const r = state.rects.find(x=>x.id===resizing.id);
+      if(!r) { resizing = null; return; }
+      const prevX = r.x, prevY = r.y, prevW = r.w, prevH = r.h;
       let x = resizing.rx, y = resizing.ry, w = resizing.rw, h = resizing.rh;
       const pos = resizing.pos;
       const min = 0.002;
@@ -533,6 +556,11 @@ function renderSepsInspector(r){
       if (pos.includes('s')) { h = Math.max(min, Math.min(1 - y, resizing.rh + (gy - resizing.startY))); }
       if (pos.includes('w')) { const nx = Math.max(0, Math.min(resizing.rx + (gx - resizing.startX), resizing.rx + resizing.rw - min)); w = resizing.rx + resizing.rw - nx; x = nx; }
       if (pos.includes('n')) { const ny = Math.max(0, Math.min(resizing.ry + (gy - resizing.startY), resizing.ry + resizing.rh - min)); h = resizing.ry + resizing.rh - ny; y = ny; }
+      if (!resizing.changed) {
+        if (Math.abs(x - prevX) > 0.0001 || Math.abs(y - prevY) > 0.0001 || Math.abs(w - prevW) > 0.0001 || Math.abs(h - prevH) > 0.0001) {
+          resizing.changed = true;
+        }
+      }
       r.x = x; r.y = y; r.w = w; r.h = h;
       renderRects();
       rectX.value = Math.round(r.x * state.img.naturalW);
@@ -562,8 +590,18 @@ function renderSepsInspector(r){
       }
       drawing = null; renderRects(); return;
     }
-    if (moving) { moving = null; markDirty(true); return; }
-    if (resizing) { resizing = null; markDirty(true); return; }
+    if (moving) {
+      const moved = !!moving.changed;
+      moving = null;
+      if (moved) markDirty(true);
+      return;
+    }
+    if (resizing) {
+      const resized = !!resizing.changed;
+      resizing = null;
+      if (resized) markDirty(true);
+      return;
+    }
   });
 
   // Shift+click inside selected rectangle to add a separator line
