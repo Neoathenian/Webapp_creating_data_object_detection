@@ -1,0 +1,45 @@
+<!-- Slide-in inspector markup for editing rectangle metadata. -->
+
+<div class='inspector' id='inspector'>
+  <h3>Inspector</h3>
+  <button id='inspector-close' class='inspector-close' title='Close' aria-label='Close'>×</button>
+  <div id='selection-panel' style='display:none;'>
+    <div class='row'>
+      <label for='rect-name'>Name</label>
+      <input id='rect-name' type='text' placeholder='Enter name' />
+    </div>
+    <div class='row' style='flex-direction:row; align-items:center; gap:8px;'>
+      <input id='rect-extract' type='checkbox' checked />
+      <label for='rect-extract'>Extract text</label>
+    </div>
+    <div class='row' style='flex-direction:row; align-items:center; gap:8px;'>
+      <input id='rect-diacritics' type='checkbox' />
+      <label for='rect-diacritics'>Contains diacritics</label>
+    </div>
+    <div class='row' style='display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px;'>
+      <div>
+        <label for='rect-x'>X (px)</label>
+        <input id='rect-x' type='number' min='0' step='1' />
+      </div>
+      <div>
+        <label for='rect-y'>Y (px)</label>
+        <input id='rect-y' type='number' min='0' step='1' />
+      </div>
+      <div>
+        <label for='rect-w'>W (px)</label>
+        <input id='rect-w' type='number' min='1' step='1' />
+      </div>
+      <div>
+        <label for='rect-h'>H (px)</label>
+        <input id='rect-h' type='number' min='1' step='1' />
+      </div>
+    </div>
+    <div class='row'>
+      <label>Line breaks</label>
+      <div id='seps-list' class='seps-list'></div>
+    </div>
+    <div class='row'>
+      <button id='btn-delete-rect' class='danger'>Delete rectangle</button>
+    </div>
+  </div>
+</div>

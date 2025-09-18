@@ -1,0 +1,43 @@
+<!-- Main workspace markup housing toolbar, canvas, and uploader. -->
+
+<div id='center'>
+  <div class='toolbar'>
+    <input id='api-title' class='api-title' type='text' placeholder='API name' />
+    <button id='mode-select' class='mode-btn icon active' data-mode='select' title='Select' aria-label='Select'>
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 3l7 14 2-6 6-2-15-6z"></path>
+      </svg>
+    </button>
+    <button id='mode-draw' class='mode-btn icon' data-mode='draw' title='Draw' aria-label='Draw'>
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+      </svg>
+    </button>
+    <button id='mode-split' class='mode-btn icon' data-mode='split' title='Subdivide' aria-label='Subdivide'>
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 12h16"></path>
+        <path d="M12 6v12" opacity=".0"></path>
+      </svg>
+    </button>
+  <span class='zoom-wrap'>Zoom <input id='zoom-range' class='zoom-range' type='range' min='20' max='300' value='100' /> <span id='zoom-label'>100%</span></span>
+  <button id='btn-save' class='save-btn' disabled>Save</button>
+  <button id='btn-undo' class='mode-btn' title='Undo (Ctrl+Z)' aria-label='Undo'>⟲</button>
+  <button id='btn-redo' class='mode-btn' title='Redo (Ctrl+Y)' aria-label='Redo'>⟳</button>
+</div>
+  <div class='create-area' id='create-area'>
+    <div style='margin-bottom:6px;color:#374151;'>Upload an image to start a new API</div>
+    <div id='new-api-uploader-slot'></div>
+    <div class='create-actions'>
+      <button id='btn-create-from-upload' class='btn primary'>Create API</button>
+      <button id='btn-cancel-create' class='btn'>Cancel</button>
+    </div>
+  </div>
+    <div class='workspace mode-draw' id='workspace'>
+      <div class='hint' id='workspace-hint'>Select an API from the left or create a new one.</div>
+      <div class='stage' id='stage' style='display:none;'>
+        <img id='workspace-img' src='' alt='document' />
+        <div class='overlay' id='overlay'></div>
+      </div>
+    </div>
+</div>

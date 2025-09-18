@@ -1,0 +1,110 @@
+<!-- Inline CSS that styles the UI Builder layout, sidebars, and interactions. -->
+
+<style>
+  :root { --top: 56px; --side: 280px; --insp: 320px; }
+
+  #builder-root { position: relative; width: 100vw; min-height: calc(100vh - var(--top)); }
+
+  /* Left sidebar */
+  #sidebar {
+    position: fixed; top: var(--top); left: 0; height: calc(100vh - var(--top)); width: var(--side);
+    background: #fff; border-right: 1px solid #e5e7eb; box-shadow: 0 2px 10px rgba(0,0,0,.04);
+    padding: 12px; overflow: hidden; display:flex; flex-direction:column; gap:8px;
+  }
+  #sidebar h3 { margin: 4px 0 4px 2px; font-size: 14px; color:#111; }
+  .sidebar-list { list-style: none; padding: 0; margin: 0; overflow: auto; border-radius: 8px; }
+  .sidebar-item { display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: center; padding: 8px; cursor: pointer; border-radius:8px; }
+  .sidebar-item:hover { background: #f7f7f8; }
+  .sidebar-item.active { background: #eff6ff; outline: 1px solid #c7ddff; }
+  .sidebar-item .thumb { width: 28px; height: 28px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; overflow: hidden; }
+  .sidebar-item .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  /* Center area fixed to viewport so content starts at top without extra scroll */
+  #center {
+    position: fixed; top: var(--top); left: var(--side); right: 0; bottom: 0;
+    padding: 12px 24px; overflow: auto; display:flex; flex-direction: column;
+  }
+  #center.inspector-open { right: var(--insp); }
+  .toolbar { display:flex; align-items:center; gap: 10px; margin: 8px 0 12px; flex-wrap: wrap; }
+  .mode-btn { padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 8px; background:#fff; cursor:pointer; }
+  .mode-btn.active { background: #eff6ff; border-color:#93c5fd; }
+  .mode-btn.icon { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; padding:0; }
+  .mode-btn.icon svg { width:18px; height:18px; stroke:#374151; fill:none; stroke-width:2; }
+  .mode-btn.active.icon svg { stroke:#1d4ed8; }
+  /* Neutralize Gradio prose default margins that misalign controls */
+  #center .prose button,
+  #center .prose .button,
+  #center .prose input,
+  #center .prose textarea,
+  #center .prose select,
+  #center .prose fieldset { margin-bottom: 0 !important; }
+  /* Force Gradio prose last-child margin to its default instead of 0 */
+  #center .prose :last-child { margin-bottom: initial !important; }
+  /* And for safety, strip bottom margin from controls inside toolbar area */
+  #center .toolbar :is(button, .button, input, select, textarea, fieldset) { margin-bottom: 0 !important; }
+  /* Ensure toolbar controls align on baseline */
+  .toolbar .mode-btn, .toolbar .save-btn, .toolbar #btn-undo, .toolbar #btn-redo, .toolbar .zoom-wrap { vertical-align: middle; }
+  /* Undo/Redo sizing & alignment */
+  #btn-undo, #btn-redo { width:40px; height:36px; display:inline-flex; align-items:center; justify-content:center; border:1px solid #d0d7de; border-radius:10px; background:#fff; font-size:18px; }
+  #btn-undo:hover, #btn-redo:hover { background:#f3f4f6; }
+  .api-title { flex: 1; min-width: 220px; padding:8px; border:1px solid #d1d5db; border-radius:8px; }
+  .zoom-wrap { display:flex; align-items:center; gap:6px; }
+  .zoom-range { width: 180px; }
+  .save-btn { padding: 8px 14px; border-radius: 8px; border:1px solid #10b981; background:#10b981; color:#fff; cursor:pointer; font-size:14px; }
+  .save-btn[disabled] { opacity:.5; cursor:not-allowed; }
+
+  .workspace { position: relative; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; flex: 1 1 auto; display:block; overflow: hidden; min-height: 0; }
+  #workspace.mode-select { cursor: default; }
+  #workspace.mode-draw, #overlay.mode-draw { cursor: crosshair; }
+  #workspace.mode-split, #overlay.mode-split { cursor: row-resize; }
+  #overlay.disabled { pointer-events: none; }
+  .workspace.grabbing { cursor: grabbing; }
+  .stage { position: absolute; left: 0; top: 0; transform-origin: top left; user-select: none; }
+  .stage img { display:block; max-width: none; }
+  /* overlay must receive pointer events for drawing */
+  .overlay { position: absolute; left: 0; top: 0; pointer-events: auto; }
+  .rect { position: absolute; border: 2px solid #2563eb; background: rgba(37,99,235,0.05); box-sizing: border-box; pointer-events: auto; border-radius: 2px; }
+  .rect.selected { border-color: #ef4444; background: rgba(239,68,68,0.06); }
+  .rect .sep-line { position:absolute; left:0; right:0; height:0; border-top:2px dashed rgba(37,99,235,0.8); cursor: row-resize; }
+  .rect .sep-line:hover { border-top-color:#1d4ed8; }
+  /* When subdividing, hide resize handles so clicks create lines */
+  #overlay.mode-split .handle { display:none !important; pointer-events:none !important; }
+  .split-hint { position:absolute; top:8px; right:8px; background:#111827; color:#fff; border-radius:6px; padding:4px 8px; font-size:12px; opacity:.85; pointer-events:none; }
+  .hint { color:#6b7280; text-align:center; padding: 20px; }
+
+  /* Inspector seps list */
+  .seps-list { display:flex; flex-direction:column; gap:8px; max-height:220px; overflow:auto; }
+  /* Zero out Gradio's small spacing inside the line-breaks area */
+  #seps-list { --spacing-sm: 0; }
+  .sep-item { display:grid; grid-template-columns: 1fr 44px; gap:8px; align-items:center; }
+  .sep-item input[type="number"] { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; height: 38px; box-sizing: border-box; }
+  .sep-del { width:44px; height:38px; border:1px solid #e5b3b3; color:#b91c1c; background:#fff; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:20px; line-height:1; }
+  .sep-del:hover { background:#fdecec; }
+
+  /* Right inspector */
+  #inspector { position: fixed; top: var(--top); right: 0; height: calc(100vh - var(--top)); width: var(--insp);
+    background:#fff; border-left: 1px solid #e5e7eb; box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    padding: 12px 14px; transform: translateX(100%); opacity: .0; transition: transform .18s ease, opacity .18s ease; overflow:auto; }
+  #inspector.open { transform: translateX(0); opacity: 1; }
+  #inspector h3 { margin: 4px 0 8px; font-size: 14px; }
+  .inspector .row { display:flex; flex-direction:column; gap: 6px; margin: 8px 0; }
+  .inspector label { font-size: 12px; color: #374151; }
+  .inspector input[type="text"], .inspector input[type="number"] {
+    padding:8px; border:1px solid #d1d5db; border-radius:8px; width: 100%; box-sizing: border-box;
+  }
+  .inspector input[type="checkbox"] { -webkit-appearance:none; appearance:none; margin:0; width:18px; height:18px; border:2px solid #2563eb; border-radius:4px; background:#fff; display:inline-grid; place-content:center; cursor:pointer; }
+  .inspector input[type="checkbox"]::after { content:""; width:6px; height:10px; border-right:3px solid #fff; border-bottom:3px solid #fff; transform: rotate(45deg) scale(0); transition: transform .12s ease; }
+  .inspector input[type="checkbox"]:checked { background:#2563eb; }
+  .inspector input[type="checkbox"]:checked::after { transform: rotate(45deg) scale(1); }
+  .inspector .danger { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; padding:8px 10px; border-radius:8px; cursor:pointer; }
+
+  .create-area { display:none; }
+  .create-actions { display:flex; gap:8px; margin-top:8px; }
+  .btn { padding: 8px 12px; border: 1px solid #d0d7de; border-radius: 8px; background:#fff; cursor:pointer; }
+  .btn.primary { background:#2563eb; border-color:#2563eb; color: #fff; }
+  /* Slightly bigger action buttons */
+  #btn-new-api { padding: 7px 14px; font-size:14px; }
+  .inspector-close { position:absolute; top:8px; right:10px; width:28px; height:28px; border:1px solid #d0d7de; border-radius:6px; background:#fff; color:#374151; cursor:pointer; }
+  .inspector-close:hover { background:#f3f4f6; }
+  #btn-save { padding: 8px 14px; font-size:14px; }
+</style>
