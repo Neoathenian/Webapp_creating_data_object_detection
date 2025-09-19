@@ -1,9 +1,9 @@
-// Standalone API key management logic reused from the builder integration panel.
+// Standalone API key management logic shared with the builder integration panel.
 
 async () => {
   const state = {
-    keys: [],
-    header: 'X-API-Key',
+    apiKeys: [],
+    apiKeyHeader: 'X-API-Key',
     endpointTemplate: '/external/apis/{api_id}',
   };
 
@@ -90,13 +90,13 @@ async () => {
       keySecretInp.value = '';
       keySecretWrap.classList.add('hidden');
       if (copyKeyBtn) copyKeyBtn.disabled = true;
-      if (keyHint) keyHint.textContent = 'Generate a key to authenticate requests. Keys are shown only once—store it securely and add a quick note so you remember how it is used.';
+      if (keyHint) keyHint.textContent = 'Keys are shown only once—store them securely and describe how you use them.';
     }
   }
 
   function renderHeader(meta) {
-    const headerName = meta && meta.header ? meta.header : 'X-API-Key';
-    state.header = headerName;
+    const headerName = (meta && meta.header) ? meta.header : 'X-API-Key';
+    state.apiKeyHeader = headerName;
     if (keyHeaderLabel) keyHeaderLabel.textContent = headerName;
     const endpoint = meta && meta.endpoint_template ? meta.endpoint_template : '/external/apis/{api_id}';
     state.endpointTemplate = endpoint;
@@ -107,14 +107,14 @@ async () => {
     if (!keyList) return;
     keyList.innerHTML = '';
 
-    if (!Array.isArray(state.keys) || state.keys.length === 0) {
+    if (!Array.isArray(state.apiKeys) || state.apiKeys.length === 0) {
       if (keyStatus) keyStatus.textContent = 'No API keys yet.';
       return;
     }
 
-    if (keyStatus) keyStatus.textContent = `${state.keys.length} active ${state.keys.length === 1 ? 'key' : 'keys'}.`;
+    if (keyStatus) keyStatus.textContent = `${state.apiKeys.length} active ${state.apiKeys.length === 1 ? 'key' : 'keys'}.`;
 
-    state.keys.forEach((key) => {
+    state.apiKeys.forEach((key) => {
       const item = document.createElement('div');
       item.className = 'api-key-item';
       item.dataset.keyId = String(key.id);
@@ -150,20 +150,20 @@ async () => {
       });
       if (res.status === 401) {
         if (!silent && keyStatus) keyStatus.textContent = 'Sign in to manage API keys.';
-        state.keys = [];
+        state.apiKeys = [];
         renderKeys();
         if (btnGenerateKey) btnGenerateKey.disabled = true;
         return;
       }
       if (!res.ok) throw new Error('status');
       const meta = await res.json();
-      state.keys = Array.isArray(meta.keys) ? meta.keys : [];
+      state.apiKeys = Array.isArray(meta.keys) ? meta.keys : [];
       renderHeader(meta);
       renderKeys();
       if (btnGenerateKey) btnGenerateKey.disabled = false;
     } catch {
       if (!silent && keyStatus) keyStatus.textContent = 'Failed to load API keys';
-      state.keys = [];
+      state.apiKeys = [];
       renderKeys();
       if (btnGenerateKey) btnGenerateKey.disabled = false;
     }
@@ -206,8 +206,9 @@ async () => {
         const data = await res.json();
         if (labelInput) labelInput.value = '';
         if (data && data.key) {
-          state.keys = [data.key, ...state.keys];
+          state.apiKeys = [data.key, ...state.apiKeys];
           renderKeys();
+          renderHeader({ header: data.header });
         } else {
           await refreshApiKeys({ silent: true });
         }
@@ -244,13 +245,15 @@ async () => {
         });
         if (res.status === 401) {
           window.alert('Sign in to delete API keys.');
+          btn.disabled = false;
+          btn.textContent = prevLabel;
           return;
         }
         if (res.status === 404) {
           window.alert('API key not found or already deleted.');
         }
         if (!res.ok) throw new Error('delete');
-        state.keys = state.keys.filter((key) => String(key.id) !== String(keyId));
+        state.apiKeys = state.apiKeys.filter((key) => String(key.id) !== String(keyId));
         renderKeys();
         if (keyStatus) keyStatus.textContent = 'Key removed.';
       } catch {
@@ -266,4 +269,4 @@ async () => {
   }
 
   await refreshApiKeys();
-};
+}
