@@ -50,6 +50,7 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
       <div class="account-email">{email}</div>
     </div>
     <a href="/profile/" role="menuitem" class="menu-link">Profile</a>
+    <a href="/api-keys/" role="menuitem" class="menu-link">API keys</a>
     <a href="/logout" role="menuitem" class="menu-link">Logout</a>
   </div>
 </details>""".strip()

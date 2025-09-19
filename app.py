@@ -12,6 +12,7 @@ from src.pages.ui_login import make_login_page
 from src.pages.ui_protected import make_protected_app
 from src.pages.ui_profile import make_profile_app
 from src.pages.ui_payment import make_payment_page
+from src.pages.ui_api_keys import make_api_keys_app
 from src.ledger_router import ledger_router
 from src.payment_router import payment_router
 from src.mount_gradio_app import mount_gradio_app
@@ -75,6 +76,7 @@ app.mount(
 # --- Simple pages
 protected_app = make_builder_app()  # Replace protected area with the builder UI
 profile_app   = make_profile_app()
+api_keys_page = make_api_keys_app()
 buy_page      = make_payment_page()
 login_page    = make_login_page()
 
@@ -82,5 +84,6 @@ login_page    = make_login_page()
 session_secret = get_secret("SESSION_SECRET", default="dev-session-secret")
 mount_gradio_app(app, protected_app, "/app", secret_key=session_secret)
 mount_gradio_app(app, profile_app,   "/profile", secret_key=session_secret)
+mount_gradio_app(app, api_keys_page, "/api-keys", secret_key=session_secret)
 mount_gradio_app(app, buy_page,      "/buy", secret_key=session_secret)
 gr.mount_gradio_app(app, login_page, "/")
