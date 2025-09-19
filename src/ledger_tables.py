@@ -1,6 +1,6 @@
 from sqlalchemy import (
     BigInteger, Integer, String, Column, ForeignKey, UniqueConstraint,
-    CheckConstraint, Index, func, TIMESTAMP
+    CheckConstraint, Index, Text, func, text, TIMESTAMP
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -53,15 +53,19 @@ class UserApiKey(Base):
     """Stores hashed API keys for programmatic access per user."""
     __tablename__ = "user_api_key"
 
-    user_id = Column(Integer, ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
     key_hash = Column(String(128), nullable=False, unique=True)
     key_prefix = Column(String(32), nullable=False)
+    label = Column(Text, nullable=False, server_default=text("''"))
     storage_uid = Column(String(255), nullable=False)
     created_at = Column(TIMESTAMP(timezone=False), server_default=func.now(), nullable=False)
     last_used_at = Column(TIMESTAMP(timezone=False), nullable=True)
 
     __table_args__ = (
         Index("ix_user_api_key_storage_uid", "storage_uid"),
+        Index("ix_user_api_key_user", "user_id"),
+        UniqueConstraint("user_id", "key_prefix", name="ux_user_api_key_user_prefix"),
     )
 
     user = relationship("AppUser")

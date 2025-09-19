@@ -44,19 +44,23 @@ def make_api_keys_app() -> gr.Blocks:
                   </div>
                 </div>
                 <div class=\"integration-section\">
-                  <div class=\"integration-heading\">Current key</div>
-                  <div id=\"api-key-status\" class=\"integration-status\">Loading…</div>
+                  <div class=\"integration-heading\">Create a key</div>
+                  <div class=\"integration-row\">
+                    <input id=\"api-key-label\" class=\"integration-input\" type=\"text\" maxlength=\"512\" placeholder=\"Label this key (e.g. &quot;Zapier integration&quot;)\" />
+                    <button id=\"btn-generate-key\" class=\"btn primary small\" type=\"button\">Generate key</button>
+                  </div>
                   <div id=\"api-key-secret-wrap\" class=\"integration-secret hidden\">
                     <input id=\"api-key-secret\" class=\"integration-input highlight\" type=\"text\" readonly />
                     <button id=\"btn-copy-key\" class=\"btn small\" type=\"button\">Copy</button>
                   </div>
-                  <div class=\"integration-actions\">
-                    <button id=\"btn-generate-key\" class=\"btn primary small\" type=\"button\">Generate key</button>
-                    <button id=\"btn-delete-key\" class=\"btn danger small\" type=\"button\">Delete key</button>
-                  </div>
                   <div id=\"api-key-hint\" class=\"integration-note\">
-                    Generate a key to authenticate requests. Keys are shown only once—store it securely.
+                    Generate a key to authenticate requests. Keys are shown only once—store it securely and describe how you use it.
                   </div>
+                </div>
+                <div class=\"integration-section\">
+                  <div class=\"integration-heading\">Active keys</div>
+                  <div id=\"api-key-status\" class=\"integration-status\">Loading…</div>
+                  <div id=\"api-key-list\" class=\"api-key-list\"></div>
                 </div>
               </div>
             </div>

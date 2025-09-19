@@ -2,21 +2,33 @@
 
 async () => {
   const state = {
-    apiKeyMeta: null,
+    keys: [],
+    header: 'X-API-Key',
+    endpointTemplate: '/external/apis/{api_id}',
   };
 
   const keyStatus = document.getElementById('api-key-status');
+  const keyList = document.getElementById('api-key-list');
   const keySecretWrap = document.getElementById('api-key-secret-wrap');
   const keySecretInp = document.getElementById('api-key-secret');
   const copyKeyBtn = document.getElementById('btn-copy-key');
   const btnGenerateKey = document.getElementById('btn-generate-key');
-  const btnDeleteKey = document.getElementById('btn-delete-key');
   const keyHint = document.getElementById('api-key-hint');
   const keyHeaderLabel = document.getElementById('api-key-header');
   const endpointTemplateLabel = document.getElementById('api-endpoint-template');
+  const labelInput = document.getElementById('api-key-label');
 
   if (copyKeyBtn) copyKeyBtn.disabled = true;
-  if (btnDeleteKey) btnDeleteKey.disabled = true;
+  if (btnGenerateKey) btnGenerateKey.disabled = false;
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
   function formatDateString(value) {
     if (!value) return '';
@@ -67,79 +79,93 @@ async () => {
     endpointTemplateLabel.textContent = tpl;
   }
 
-  function updateApiKeySection(meta, { showSecret = false, secretValue = '' } = {}) {
-    state.apiKeyMeta = meta || null;
-
-    const headerName = meta && meta.header ? meta.header : 'X-API-Key';
-    if (keyHeaderLabel) keyHeaderLabel.textContent = headerName;
-    updateEndpointTemplate(meta);
-
-    if (keySecretWrap) {
-      if (showSecret && secretValue) {
-        keySecretInp.value = secretValue;
-        keySecretWrap.classList.remove('hidden');
-        if (copyKeyBtn) copyKeyBtn.disabled = false;
-        if (keyHint) keyHint.textContent = 'Copy this key now; it will not be shown again.';
-      } else {
-        keySecretInp.value = '';
-        keySecretWrap.classList.add('hidden');
-        if (copyKeyBtn) copyKeyBtn.disabled = true;
-        if (keyHint) keyHint.textContent = 'Generate a key to authenticate requests. Keys are shown only once—store it securely.';
-      }
-    }
-
-    if (!keyStatus) return;
-
-    if (!meta || !meta.has_key) {
-      keyStatus.textContent = 'No API key yet.';
-      if (btnDeleteKey) btnDeleteKey.disabled = true;
-      if (btnGenerateKey) btnGenerateKey.textContent = 'Generate key';
-      return;
-    }
-
-    const parts = [];
-    const prefix = meta.key_prefix ? `${meta.key_prefix}…` : 'Active key';
-    parts.push(prefix);
-    if (meta.created_at) parts.push(`created ${formatDateString(meta.created_at)}`);
-    if (meta.last_used_at) parts.push(`last used ${formatDateString(meta.last_used_at)}`);
-    keyStatus.textContent = parts.join(' • ');
-
-    if (btnDeleteKey) btnDeleteKey.disabled = false;
-    if (btnGenerateKey) btnGenerateKey.textContent = 'Regenerate key';
-    if (keyHint && !showSecret) {
-      keyHint.textContent = 'Regenerating deletes the previous key immediately. Update any integrations before rotating again.';
+  function renderSecret({ showSecret = false, secretValue = '' } = {}) {
+    if (!keySecretWrap) return;
+    if (showSecret && secretValue) {
+      keySecretInp.value = secretValue;
+      keySecretWrap.classList.remove('hidden');
+      if (copyKeyBtn) copyKeyBtn.disabled = false;
+      if (keyHint) keyHint.textContent = 'Copy this key now; it will not be shown again.';
+    } else {
+      keySecretInp.value = '';
+      keySecretWrap.classList.add('hidden');
+      if (copyKeyBtn) copyKeyBtn.disabled = true;
+      if (keyHint) keyHint.textContent = 'Generate a key to authenticate requests. Keys are shown only once—store it securely and add a quick note so you remember how it is used.';
     }
   }
 
-  async function refreshApiKeyStatus({ silent = false } = {}) {
+  function renderHeader(meta) {
+    const headerName = meta && meta.header ? meta.header : 'X-API-Key';
+    state.header = headerName;
+    if (keyHeaderLabel) keyHeaderLabel.textContent = headerName;
+    const endpoint = meta && meta.endpoint_template ? meta.endpoint_template : '/external/apis/{api_id}';
+    state.endpointTemplate = endpoint;
+    updateEndpointTemplate({ endpoint_template: endpoint });
+  }
+
+  function renderKeys() {
+    if (!keyList) return;
+    keyList.innerHTML = '';
+
+    if (!Array.isArray(state.keys) || state.keys.length === 0) {
+      if (keyStatus) keyStatus.textContent = 'No API keys yet.';
+      return;
+    }
+
+    if (keyStatus) keyStatus.textContent = `${state.keys.length} active ${state.keys.length === 1 ? 'key' : 'keys'}.`;
+
+    state.keys.forEach((key) => {
+      const item = document.createElement('div');
+      item.className = 'api-key-item';
+      item.dataset.keyId = String(key.id);
+
+      const prefixLabel = key.key_prefix ? `${key.key_prefix}…` : 'Key';
+      const createdLabel = key.created_at ? `Created ${formatDateString(key.created_at)}` : '';
+      const usedLabel = key.last_used_at ? `Last used ${formatDateString(key.last_used_at)}` : '';
+      const metaPieces = [createdLabel, usedLabel].filter(Boolean);
+      const description = key.label ? escapeHtml(key.label) : 'No description provided.';
+
+      item.innerHTML = `
+        <div class="api-key-item-details">
+          <div class="api-key-prefix">${escapeHtml(prefixLabel)}</div>
+          <div class="api-key-description">${description}</div>
+          <div class="api-key-meta">${metaPieces.join(' • ')}</div>
+        </div>
+        <div class="api-key-item-actions">
+          <button class="btn small danger" type="button" data-action="delete" data-key-id="${escapeHtml(key.id)}">Delete</button>
+        </div>
+      `;
+
+      keyList.appendChild(item);
+    });
+  }
+
+  async function refreshApiKeys({ silent = false } = {}) {
     if (keyStatus && !silent) keyStatus.textContent = 'Loading…';
+    renderSecret({ showSecret: false });
+
     try {
       const res = await fetch('/builder/api-key', {
         credentials: 'include',
       });
       if (res.status === 401) {
         if (!silent && keyStatus) keyStatus.textContent = 'Sign in to manage API keys.';
-        state.apiKeyMeta = null;
-        if (btnDeleteKey) btnDeleteKey.disabled = true;
-        if (copyKeyBtn) copyKeyBtn.disabled = true;
-        if (keySecretWrap) {
-          keySecretInp.value = '';
-          keySecretWrap.classList.add('hidden');
-        }
+        state.keys = [];
+        renderKeys();
+        if (btnGenerateKey) btnGenerateKey.disabled = true;
         return;
       }
       if (!res.ok) throw new Error('status');
       const meta = await res.json();
-      updateApiKeySection(meta);
+      state.keys = Array.isArray(meta.keys) ? meta.keys : [];
+      renderHeader(meta);
+      renderKeys();
+      if (btnGenerateKey) btnGenerateKey.disabled = false;
     } catch {
-      if (!silent && keyStatus) keyStatus.textContent = 'Failed to load API key';
-      if (btnDeleteKey) btnDeleteKey.disabled = true;
-      if (copyKeyBtn) copyKeyBtn.disabled = true;
-      if (keySecretWrap) {
-        keySecretInp.value = '';
-        keySecretWrap.classList.add('hidden');
-      }
-      state.apiKeyMeta = null;
+      if (!silent && keyStatus) keyStatus.textContent = 'Failed to load API keys';
+      state.keys = [];
+      renderKeys();
+      if (btnGenerateKey) btnGenerateKey.disabled = false;
     }
   }
 
@@ -155,34 +181,38 @@ async () => {
   if (btnGenerateKey) {
     btnGenerateKey.onclick = async () => {
       if (btnGenerateKey.disabled) return;
-      if (state.apiKeyMeta && state.apiKeyMeta.has_key) {
-        const confirmed = window.confirm('Generate a new key? Existing integrations using the old key will stop working.');
-        if (!confirmed) return;
-      }
       btnGenerateKey.disabled = true;
       if (keyStatus) keyStatus.textContent = 'Generating key…';
+
+      const body = {
+        label: labelInput ? labelInput.value : '',
+      };
+
       try {
         const res = await fetch('/builder/api-key', {
           method: 'POST',
           credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
         });
         if (res.status === 401) {
           if (keyStatus) keyStatus.textContent = 'Sign in to generate keys.';
-          state.apiKeyMeta = null;
-          if (copyKeyBtn) copyKeyBtn.disabled = true;
+          btnGenerateKey.disabled = false;
           return;
         }
-        if (!res.ok) throw new Error('rotate');
+        if (!res.ok) throw new Error('create');
         const data = await res.json();
-        const meta = {
-          has_key: true,
-          key_prefix: data.key_prefix || '',
-          created_at: data.created_at || null,
-          last_used_at: null,
-          header: data.header || (state.apiKeyMeta ? state.apiKeyMeta.header : 'X-API-Key'),
-          endpoint_template: state.apiKeyMeta ? state.apiKeyMeta.endpoint_template : '/external/apis/{api_id}',
-        };
-        updateApiKeySection(meta, { showSecret: !!data.api_key, secretValue: data.api_key || '' });
+        if (labelInput) labelInput.value = '';
+        if (data && data.key) {
+          state.keys = [data.key, ...state.keys];
+          renderKeys();
+        } else {
+          await refreshApiKeys({ silent: true });
+        }
+        renderSecret({ showSecret: !!data.api_key, secretValue: data.api_key || '' });
+        if (keyStatus) keyStatus.textContent = 'Key created.';
       } catch {
         if (keyStatus) keyStatus.textContent = 'Failed to generate key';
       } finally {
@@ -191,34 +221,49 @@ async () => {
     };
   }
 
-  if (btnDeleteKey) {
-    btnDeleteKey.onclick = async () => {
-      if (btnDeleteKey.disabled || !(state.apiKeyMeta && state.apiKeyMeta.has_key)) return;
-      const confirmed = window.confirm('Delete the current API key? Any requests using it will be rejected.');
+  if (keyList) {
+    keyList.addEventListener('click', async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const action = target.dataset.action;
+      const keyId = target.dataset.keyId;
+      if (action !== 'delete' || !keyId) return;
+
+      const confirmed = window.confirm('Delete this API key? Any requests using it will stop working.');
       if (!confirmed) return;
-      btnDeleteKey.disabled = true;
-      if (keyStatus) keyStatus.textContent = 'Deleting key…';
+
+      const btn = target;
+      btn.disabled = true;
+      const prevLabel = btn.textContent;
+      btn.textContent = 'Deleting…';
+
       try {
-        const res = await fetch('/builder/api-key', {
+        const res = await fetch(`/builder/api-key/${encodeURIComponent(keyId)}`, {
           method: 'DELETE',
           credentials: 'include',
         });
         if (res.status === 401) {
-          if (keyStatus) keyStatus.textContent = 'Sign in to delete keys.';
-          if (state.apiKeyMeta && state.apiKeyMeta.has_key) btnDeleteKey.disabled = false;
+          window.alert('Sign in to delete API keys.');
           return;
         }
+        if (res.status === 404) {
+          window.alert('API key not found or already deleted.');
+        }
         if (!res.ok) throw new Error('delete');
-        await refreshApiKeyStatus({ silent: true });
+        state.keys = state.keys.filter((key) => String(key.id) !== String(keyId));
+        renderKeys();
+        if (keyStatus) keyStatus.textContent = 'Key removed.';
       } catch {
-        if (keyStatus) keyStatus.textContent = 'Failed to delete key';
-        if (state.apiKeyMeta && state.apiKeyMeta.has_key) btnDeleteKey.disabled = false;
+        window.alert('Failed to delete API key. Please try again.');
+        btn.disabled = false;
+        btn.textContent = prevLabel;
         return;
       }
-      if (keyHint) keyHint.textContent = 'Generate a key to authenticate requests. Keys are shown only once—store it securely.';
-      if (copyKeyBtn) copyKeyBtn.disabled = true;
-    };
+
+      btn.disabled = false;
+      btn.textContent = prevLabel;
+    });
   }
 
-  await refreshApiKeyStatus();
-}
+  await refreshApiKeys();
+};
