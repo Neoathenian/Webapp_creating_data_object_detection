@@ -16,8 +16,10 @@ from src.ledger_router import ledger_router
 from src.payment_router import payment_router
 from src.mount_gradio_app import mount_gradio_app
 from src.api_builder_router import router as api_builder_router
-from src.api_keys import router as api_key_router
-from src.external_api import router as external_api_router
+from src.api_key_handling import (
+    builder_router as api_key_router,
+    external_router as external_api_router,
+)
 from src.pages.ui_builder import make_builder_app
 
 # --- lifespan manages DB connector/engine safely (no globals)
