@@ -32,6 +32,17 @@ if __name__ == "__main__":
             fixed = os.path.join(script_directory, fixed)
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = fixed
 
+    # Ensure TLS trust store is available for Cloud SQL connector / aiohttp
+    if not os.getenv("SSL_CERT_FILE") or not os.path.exists(os.getenv("SSL_CERT_FILE", "")):
+        try:
+            import certifi  # type: ignore
+
+            cert_path = certifi.where()
+            os.environ.setdefault("SSL_CERT_FILE", cert_path)
+            os.environ.setdefault("REQUESTS_CA_BUNDLE", cert_path)
+        except Exception:
+            pass
+
     #This is the last thing to do because first we need the secrets imported
     from app import app
     uvicorn.run(app, host="0.0.0.0", port=args.port)

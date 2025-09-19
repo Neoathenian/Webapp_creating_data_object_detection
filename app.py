@@ -16,6 +16,8 @@ from src.ledger_router import ledger_router
 from src.payment_router import payment_router
 from src.mount_gradio_app import mount_gradio_app
 from src.api_builder_router import router as api_builder_router
+from src.api_keys import router as api_key_router
+from src.external_api import router as external_api_router
 from src.pages.ui_builder import make_builder_app
 
 # --- lifespan manages DB connector/engine safely (no globals)
@@ -57,6 +59,8 @@ app.include_router(payment_router)
 
 # --- API Builder routes
 app.include_router(api_builder_router)
+app.include_router(api_key_router)
+app.include_router(external_api_router)
 
 # --- Static for API images (ensure directory exists first)
 os.makedirs("secrets/api_builder/images", exist_ok=True)

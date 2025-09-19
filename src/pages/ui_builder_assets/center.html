@@ -25,6 +25,29 @@
   <button id='btn-undo' class='mode-btn' title='Undo (Ctrl+Z)' aria-label='Undo'>⟲</button>
   <button id='btn-redo' class='mode-btn' title='Redo (Ctrl+Y)' aria-label='Redo'>⟳</button>
 </div>
+  <div class='integration-panel' id='integration-panel'>
+    <div class='integration-section'>
+      <div class='integration-heading'>Endpoint</div>
+      <div class='integration-row'>
+        <input id='api-endpoint' class='integration-input' type='text' value='Select an API to view its link' readonly />
+        <button id='btn-copy-endpoint' class='btn small' type='button'>Copy</button>
+      </div>
+      <div class='integration-note'>Call with header <code id='api-key-header'>X-API-Key</code>; path is tied to the API name.</div>
+    </div>
+    <div class='integration-section'>
+      <div class='integration-heading'>API Key</div>
+      <div id='api-key-status' class='integration-status'>Loading…</div>
+      <div id='api-key-secret-wrap' class='integration-secret hidden'>
+        <input id='api-key-secret' class='integration-input highlight' type='text' readonly />
+        <button id='btn-copy-key' class='btn small' type='button'>Copy</button>
+      </div>
+      <div class='integration-actions'>
+        <button id='btn-generate-key' class='btn primary small' type='button'>Generate key</button>
+        <button id='btn-delete-key' class='btn small danger' type='button'>Delete key</button>
+      </div>
+      <div id='api-key-hint' class='integration-note'>Keys are shown only once—store it securely.</div>
+    </div>
+  </div>
   <div class='create-area' id='create-area'>
     <div style='margin-bottom:6px;color:#374151;'>Upload an image to start a new API</div>
     <div id='new-api-uploader-slot'></div>

@@ -149,6 +149,22 @@ def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]
     return None
 
 
+def find_doc_by_name(uid: str, api_name: str) -> Optional[Tuple[Dict[str, Any], str]]:
+    """Return (doc, blob_name) for the given API folder name."""
+    client = storage_client()
+    bucket = get_bucket()
+    blob_name = f"{uid}/{api_name}/doc.json"
+    blob = bucket.blob(blob_name)
+    if not blob.exists(client):
+        return None
+    try:
+        raw = blob.download_as_bytes()
+        doc = json.loads(raw.decode("utf-8"))
+        return doc, blob_name
+    except Exception:
+        return None
+
+
 def signed_url(blob_name: str, minutes: int = 15) -> Optional[str]:
     """Generate a V4 signed URL for GET; return None on failure."""
     try:

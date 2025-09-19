@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from types import SimpleNamespace
-from typing import Generator
+from typing import Generator, Optional
 
 from fastapi import Request
 from google.cloud.sql.connector import Connector, IPTypes
@@ -37,15 +37,21 @@ def _connect_factory(connector: Connector):
 
 
 def init_payment_db_state() -> SimpleNamespace:
-    connector = Connector()  # uses ADC / GOOGLE_APPLICATION_CREDENTIALS
-    engine: Engine = create_engine(
-        "postgresql+pg8000://",           # URL is ignored; creator provides real conn
-        creator=_connect_factory(connector),
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=5,
-        future=True,
-    )
+    direct_url = os.getenv("LEDGER_DATABASE_URL")
+
+    connector: Optional[Connector] = None
+    if direct_url:
+        engine: Engine = create_engine(direct_url, future=True)
+    else:
+        connector = Connector()  # uses ADC / GOOGLE_APPLICATION_CREDENTIALS
+        engine = create_engine(
+            "postgresql+pg8000://",           # URL is ignored; creator provides real conn
+            creator=_connect_factory(connector),
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=5,
+            future=True,
+        )
     SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
     return SimpleNamespace(connector=connector, engine=engine, SessionLocal=SessionLocal)
 
@@ -56,7 +62,8 @@ def shutdown_payment_db_state(state: SimpleNamespace) -> None:
     except Exception:
         pass
     try:
-        state.connector.close()
+        if getattr(state, "connector", None):
+            state.connector.close()
     except Exception:
         pass
 

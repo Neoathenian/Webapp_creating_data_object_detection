@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -22,6 +23,15 @@ from src.gcs_storage import (
     copy_blob,
     signed_url,
 )
+OBJECT_APIS_BASE_URL = os.getenv("OBJECT_APIS_BASE_URL", "http://localhost:9001")
+
+
+def _object_api_url(doc: Dict[str, Any]) -> str:
+    base = (OBJECT_APIS_BASE_URL or "").rstrip("/")
+    api_name = doc.get("name") or doc.get("id") or ""
+    if base:
+        return f"{base}/api/{api_name}"
+    return f"/external/apis/by-name/{api_name}"
 
 
 def _user_id(request: Request) -> str:
@@ -122,6 +132,7 @@ def list_apis(request: Request):
         except Exception:
             url = None
         it["image_url"] = url or f"/builder/images/{it.get('id')}"
+        it["access_url"] = _object_api_url(it)
         # Keep rects in the payload so the client can cache all docs at load time
     items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return items
@@ -174,8 +185,11 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
         url = signed_url(img_blob, minutes=20)
     except Exception:
         url = None
-    doc["image_url"] = url or f"/builder/images/{api_id}"
-    return doc
+
+    resp = dict(doc)
+    resp["image_url"] = url or f"/builder/images/{api_id}"
+    resp["access_url"] = _object_api_url(resp)
+    return resp
 
 
 @router.get("/apis/{api_id}")
@@ -189,8 +203,10 @@ def get_api(api_id: str, request: Request):
         url = signed_url(doc.get("image_blob") or "", minutes=20)
     except Exception:
         url = None
-    doc["image_url"] = url or f"/builder/images/{api_id}"
-    return doc
+    resp = dict(doc)
+    resp["image_url"] = url or f"/builder/images/{api_id}"
+    resp["access_url"] = _object_api_url(resp)
+    return resp
 
 
 class ApiUpdate(BaseModel):
@@ -271,8 +287,10 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
         url = signed_url(doc.get("image_blob") or "", minutes=20)
     except Exception:
         url = None
-    doc["image_url"] = url or f"/builder/images/{api_id}"
-    return doc
+    resp = dict(doc)
+    resp["image_url"] = url or f"/builder/images/{api_id}"
+    resp["access_url"] = _object_api_url(resp)
+    return resp
 
 
 @router.delete("/apis/{api_id}")

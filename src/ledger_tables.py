@@ -47,3 +47,21 @@ class UserBalance(Base):
     user_id = Column(Integer, ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True)
     balance = Column(BigInteger, nullable=False)
     user = relationship("AppUser")
+
+
+class UserApiKey(Base):
+    """Stores hashed API keys for programmatic access per user."""
+    __tablename__ = "user_api_key"
+
+    user_id = Column(Integer, ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True)
+    key_hash = Column(String(128), nullable=False, unique=True)
+    key_prefix = Column(String(32), nullable=False)
+    storage_uid = Column(String(255), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=False), server_default=func.now(), nullable=False)
+    last_used_at = Column(TIMESTAMP(timezone=False), nullable=True)
+
+    __table_args__ = (
+        Index("ix_user_api_key_storage_uid", "storage_uid"),
+    )
+
+    user = relationship("AppUser")
