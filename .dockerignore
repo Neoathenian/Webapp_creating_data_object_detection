@@ -1,0 +1,17 @@
+.git
+.gitignore
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+notebooks/
+screenshots/
+PythonPortable/
+env.dev
+*.sqlite
+*.db
+Run.sh
+run.sh
+Run.ps1
