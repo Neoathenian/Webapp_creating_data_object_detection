@@ -426,6 +426,7 @@ function renderSepsInspector(r){
     state.selected = id;
     // Wait image load to set sizes without altering user zoom
     hint.style.display = 'none';
+    hideCreate();
     stage.style.display = 'block';
     img.src = doc.image_url;
     await new Promise((res) => { if (img.complete) res(); else img.onload = res; });
