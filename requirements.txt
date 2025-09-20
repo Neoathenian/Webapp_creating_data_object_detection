@@ -171,4 +171,4 @@ SQLAlchemy==2.0.43
 stripe==12.5.1
 starlette==0.41.3
 python-dotenv==1.0.0
-pg8000==1.29.3
+pg8000>=1.30.0
