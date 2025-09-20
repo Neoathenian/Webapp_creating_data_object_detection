@@ -11,6 +11,7 @@ async () => {
     img: { naturalW: 0, naturalH: 0 },
     dirty: false,
     loaded: false,
+    deleting: false,
   };
 
   // Elements
@@ -46,6 +47,8 @@ async () => {
   const btnInspectorClose = document.getElementById('inspector-close');
   const btnUndo = document.getElementById('btn-undo');
   const btnRedo = document.getElementById('btn-redo');
+  const btnDelete = document.getElementById('btn-delete-api');
+  if (btnDelete) btnDelete.disabled = true;
   const endpointInp = document.getElementById('api-endpoint');
   const copyEndpointBtn = document.getElementById('btn-copy-endpoint');
   const keyHeaderLabel = document.getElementById('api-key-header');
@@ -56,6 +59,10 @@ async () => {
     const cur = state.apis.find(a=>a.id===state.selected);
     const isPending = !!(cur && cur.pending);
     btnSave.disabled = !state.dirty || !state.selected || isPending;
+    if (btnDelete) {
+      const canDelete = !!(state.selected && !isPending && !state.deleting);
+      btnDelete.disabled = !canDelete;
+    }
   }
 
   function updateEndpoint(doc) {
@@ -114,6 +121,47 @@ async () => {
   function undo(){ if(!history.undo.length) return; history.redo.push(cloneRects()); const prev = history.undo.pop(); applyRects(prev); }
   function redo(){ if(!history.redo.length) return; history.undo.push(cloneRects()); const next = history.redo.pop(); applyRects(next); }
 
+  async function deleteSelectedApi() {
+    if (state.deleting || !state.selected) return;
+    const doc = state.apis.find(a => a.id === state.selected);
+    if (!doc || doc.pending) return;
+    const hasName = (doc.name || '').trim();
+    const displayName = hasName ? `"${hasName}"` : 'this API';
+    const extra = state.dirty ? '\nUnsaved changes will be lost.' : '';
+    const confirmMsg = `Delete ${displayName}? This action cannot be undone.${extra}`;
+    if (!(typeof window !== 'undefined' && window.confirm && window.confirm(confirmMsg))) return;
+
+    state.deleting = true;
+    markDirty(state.dirty);
+    try {
+      const resp = await fetch(`/builder/apis/${doc.id}`, { method: 'DELETE' });
+      if (!resp.ok) throw new Error('delete');
+      state.apis = state.apis.filter(a => a.id !== doc.id);
+      state.selected = null;
+      state.rects = [];
+      state.img.naturalW = 0; state.img.naturalH = 0;
+      history.undo = []; history.redo = [];
+      clearSelection({ skipRender: true });
+      renderRects();
+      if (hint) hint.style.display = 'block';
+      if (stage) stage.style.display = 'none';
+      if (img) img.src = '';
+      if (createArea) createArea.style.display = 'none';
+      if (titleInp) titleInp.value = '';
+      updateEndpoint(null);
+      markDirty(false);
+      renderList();
+    } catch (err) {
+      console.error(err);
+      if (typeof window !== 'undefined' && window.alert) {
+        window.alert('Failed to delete API. Please try again.');
+      }
+    } finally {
+      state.deleting = false;
+      markDirty(state.dirty);
+    }
+  }
+
   async function doSave(){
     if (!state.selected) return true;
     try{
@@ -151,6 +199,7 @@ async () => {
   }
   if (btnUndo) btnUndo.onclick = () => undo();
   if (btnRedo) btnRedo.onclick = () => redo();
+  if (btnDelete) btnDelete.onclick = () => { deleteSelectedApi(); };
   window.addEventListener('keydown', (e) => {
     const z = (e.key === 'z' || e.key === 'Z');
     const y = (e.key === 'y' || e.key === 'Y');

@@ -44,9 +44,16 @@
   #center .toolbar :is(button, .button, input, select, textarea, fieldset) { margin-bottom: 0 !important; }
   /* Ensure toolbar controls align on baseline */
   .toolbar .mode-btn, .toolbar .save-btn, .toolbar #btn-undo, .toolbar #btn-redo, .toolbar .zoom-wrap { vertical-align: middle; }
-  /* Undo/Redo sizing & alignment */
-  #btn-undo, #btn-redo { width:40px; height:36px; display:inline-flex; align-items:center; justify-content:center; border:1px solid #d0d7de; border-radius:10px; background:#fff; font-size:18px; }
+  /* Undo/Redo/Delete sizing & alignment */
+  #btn-undo, #btn-redo, #btn-delete-api {
+    width:40px; height:36px; display:inline-flex; align-items:center; justify-content:center;
+    border:1px solid #d0d7de; border-radius:10px; background:#fff; font-size:18px;
+  }
   #btn-undo:hover, #btn-redo:hover { background:#f3f4f6; }
+  .mode-btn.danger { border-color:#fca5a5; }
+  .mode-btn.danger svg { stroke:#b91c1c; }
+  .mode-btn.danger:hover { background:#fee2e2; }
+  .mode-btn.danger:disabled { opacity:.4; cursor:not-allowed; }
   .api-title { flex: 1; min-width: 220px; padding:8px; border:1px solid #d1d5db; border-radius:8px; }
   .zoom-wrap { display:flex; align-items:center; gap:6px; }
   .zoom-range { width: 180px; }
