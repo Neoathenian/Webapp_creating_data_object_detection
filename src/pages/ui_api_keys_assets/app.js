@@ -3,7 +3,7 @@
 async () => {
   const state = {
     apiKeys: [],
-    apiKeyHeader: 'X-API-Key',
+    apiKeyHeader: 'API-KEY',
     endpointTemplate: '/external/apis/{api_id}',
   };
 
@@ -95,7 +95,7 @@ async () => {
   }
 
   function renderHeader(meta) {
-    const headerName = (meta && meta.header) ? meta.header : 'X-API-Key';
+    const headerName = (meta && meta.header) ? meta.header : 'API-KEY';
     state.apiKeyHeader = headerName;
     if (keyHeaderLabel) keyHeaderLabel.textContent = headerName;
     const endpoint = meta && meta.endpoint_template ? meta.endpoint_template : '/external/apis/{api_id}';

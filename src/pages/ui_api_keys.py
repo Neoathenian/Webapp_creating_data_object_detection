@@ -40,7 +40,7 @@ def make_api_keys_app() -> gr.Blocks:
                   <div class=\"integration-heading\">Endpoint &amp; header</div>
                   <div class=\"integration-note\">
                     Send requests to <code id=\"api-endpoint-template\">/external/apis/{api_id}</code>
-                    with the <code id=\"api-key-header\">X-API-Key</code> header.
+                    with the <code id=\"api-key-header\">API-KEY</code> header.
                   </div>
                 </div>
                 <div class=\"integration-section\">

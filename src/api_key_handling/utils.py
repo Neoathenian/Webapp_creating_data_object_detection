@@ -4,7 +4,7 @@ import hashlib
 import secrets
 from typing import Any, Mapping
 
-API_KEY_HEADER = "X-API-Key"
+API_KEY_HEADER = "API-KEY"
 
 
 def generate_api_key() -> str:

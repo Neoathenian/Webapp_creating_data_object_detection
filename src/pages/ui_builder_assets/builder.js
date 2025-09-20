@@ -111,7 +111,7 @@ async () => {
     btn.textContent = 'Copied!';
     setTimeout(() => { btn.textContent = btn.dataset.prevLabel || prev; }, 1500);
   }
-  if (keyHeaderLabel) keyHeaderLabel.textContent = 'X-API-Key';
+  if (keyHeaderLabel) keyHeaderLabel.textContent = 'API-KEY';
 
   // --- Simple history (rectangles only)
   const history = { undo: [], redo: [] };
