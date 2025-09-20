@@ -4,6 +4,51 @@ from src.secrets import get_secret
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from starlette.staticfiles import StaticFiles
+
+
+def _install_proxy_headers(app: FastAPI) -> None:
+    """Attach a proxy-aware middleware even on stripped Starlette builds."""
+
+    try:
+        from starlette.middleware.proxy_headers import ProxyHeadersMiddleware as _Proxy
+
+        app.add_middleware(_Proxy)
+        return
+    except ImportError:
+        pass
+
+    try:
+        from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware as _Proxy  # type: ignore
+
+        app.add_middleware(_Proxy, trusted_hosts="*")
+        return
+    except ImportError:
+        pass
+
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class _Proxy(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            forwarded_proto = request.headers.get("x-forwarded-proto")
+            if forwarded_proto:
+                request.scope["scheme"] = forwarded_proto.split(",")[0].strip()
+
+            forwarded_host = request.headers.get("x-forwarded-host")
+            forwarded_port = request.headers.get("x-forwarded-port")
+            server = request.scope.get("server", (None, None))
+
+            host = forwarded_host.split(",")[0].strip() if forwarded_host else server[0]
+            port = (
+                int(forwarded_port.split(",")[0])
+                if forwarded_port and forwarded_port.split(",")[0].isdigit()
+                else server[1]
+            )
+            if host or port:
+                request.scope["server"] = (host, port)
+
+            return await call_next(request)
+
+    app.add_middleware(_Proxy)
 import gradio as gr
 import os
 
@@ -34,6 +79,7 @@ async def lifespan(app: FastAPI):
         shutdown_payment_db_state(app.state.db)
 
 app = FastAPI(lifespan=lifespan)
+_install_proxy_headers(app)
 
 
 
