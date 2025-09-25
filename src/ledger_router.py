@@ -8,8 +8,53 @@ from fastapi import Depends, HTTPException, Request
 from src.ledger_db_access import get_payment_db
 from src.ledger_tables import UserBalance, CreditLedger
 from src.ledger_tables import AppUser
+from src.secrets import get_secret
 
 
+DEFAULT_SIGNUP_CREDITS = int(get_secret("SIGNUP_CREDITS", default="0") or 0)
+
+
+def ensure_user_signup_bonus(sub: str, db: Session) -> int:
+    """Ensure a user exists and has received the signup bonus; return their PK."""
+    needs_commit = False
+
+    u = db.execute(select(AppUser).where(AppUser.oauth_sub == sub)).scalar_one_or_none()
+    if not u:
+        u = AppUser(oauth_sub=sub)
+        db.add(u)
+        db.flush()
+        needs_commit = True
+
+    if DEFAULT_SIGNUP_CREDITS > 0:
+        bonus_source_id = f"user:{u.id}"
+        has_balance = db.execute(
+            select(UserBalance.user_id).where(UserBalance.user_id == u.id)
+        ).scalar_one_or_none()
+        has_bonus_entry = db.execute(
+            select(CreditLedger.id)
+            .where(CreditLedger.source_type == "signup_bonus")
+            .where(CreditLedger.source_id == bonus_source_id)
+        ).scalar_one_or_none()
+
+        if not has_balance:
+            db.add(UserBalance(user_id=u.id, balance=DEFAULT_SIGNUP_CREDITS))
+            needs_commit = True
+        if not has_bonus_entry:
+            db.add(
+                CreditLedger(
+                    user_id=u.id,
+                    delta=DEFAULT_SIGNUP_CREDITS,
+                    reason="signup_bonus",
+                    source_type="signup_bonus",
+                    source_id=bonus_source_id,
+                )
+            )
+            needs_commit = True
+
+    if needs_commit:
+        db.commit()
+
+    return int(u.id)
 
 
 def get_current_user_id(request: Request, db: Session = Depends(get_payment_db)) -> int:
@@ -20,15 +65,7 @@ def get_current_user_id(request: Request, db: Session = Depends(get_payment_db))
     if not sub:
         raise HTTPException(status_code=401, detail="not_authenticated")
 
-    u = db.execute(select(AppUser).where(AppUser.oauth_sub == sub)).scalar_one_or_none()
-    if u:
-        return int(u.id)
-
-    # Create user if not exists
-    u = AppUser(oauth_sub=sub)
-    db.add(u)
-    db.flush()
-    return int(u.id)
+    return ensure_user_signup_bonus(sub, db)
 
 
 ledger_router = APIRouter()
@@ -129,4 +166,3 @@ def spend_credits(
         select(UserBalance.balance).where(UserBalance.user_id == user_id)
     ).scalar_one()
     return {"balance": int(bal)}
-

@@ -6,6 +6,8 @@ from starlette.responses import RedirectResponse
 
 from starlette.requests import Request as StarletteRequest
 
+from src.ledger_router import ensure_user_signup_bonus
+
 oauth = OAuth()
 login_providers: List[Dict[str, Any]] = []
 
@@ -42,6 +44,21 @@ def add_login_routes(app, app_route: str = "/app"):
             token = await client.authorize_access_token(request)
             userinfo = token.get("userinfo") or await client.parse_id_token(request, token)
             request.session["user"] = dict(userinfo)
+
+            sub = userinfo.get("sub")
+            session_factory = getattr(getattr(request.app.state, "db", None), "SessionLocal", None)
+            if sub and session_factory:
+                db = session_factory()
+                try:
+                    ensure_user_signup_bonus(sub, db)
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        db.close()
+                    except Exception:
+                        pass
+
             return RedirectResponse(f"{_app_route}/")
         
 
@@ -54,4 +71,3 @@ def get_user(request: Any) -> Optional[dict]:
     except Exception:
         pass
     return None
-
