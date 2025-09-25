@@ -7,6 +7,21 @@ from typing import Generator, Optional
 from fastapi import Request
 from google.cloud.sql.connector import Connector, IPTypes
 from sqlalchemy import create_engine
+from google.oauth2 import service_account
+
+
+
+def _load_sql_credentials():
+    """Return service account credentials for Cloud SQL connector if configured."""
+    path = os.getenv("CLOUD_SQL_CREDENTIALS")
+    if not path:
+        return None
+    try:
+        return service_account.Credentials.from_service_account_file(path)
+    except Exception:
+        return None
+
+
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -43,7 +58,8 @@ def init_payment_db_state() -> SimpleNamespace:
     if direct_url:
         engine: Engine = create_engine(direct_url, future=True)
     else:
-        connector = Connector()  # uses ADC / GOOGLE_APPLICATION_CREDENTIALS
+        creds = _load_sql_credentials()
+        connector = Connector(credentials=creds) if creds is not None else Connector()  # uses explicit creds when provided
         engine = create_engine(
             "postgresql+pg8000://",           # URL is ignored; creator provides real conn
             creator=_connect_factory(connector),
