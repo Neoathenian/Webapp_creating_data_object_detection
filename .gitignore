@@ -175,3 +175,6 @@ PythonPortable2/
 Install_additional_modules.sh
 Run.sh
 Installation.sh
+
+src_old/
+env.prod
