@@ -9,21 +9,39 @@ LOGO_URL = "/images/Logo.png"
 FAVICON_SCRIPT = """
 <script>
 (function() {
-  const url = "__LOGO_URL__";
-  const existing = document.querySelectorAll('link[rel~="icon"]');
-  if (existing.length) {
-    existing.forEach((link) => { link.href = url; });
-    return;
-  }
-  let link = document.getElementById('doc2json-favicon');
-  if (!link) {
-    link = document.createElement('link');
-    link.id = 'doc2json-favicon';
-    link.rel = 'icon';
-    link.type = 'image/png';
-    document.head.appendChild(link);
-  }
-  link.href = url;
+  const url = new URL("__LOGO_URL__", window.location.origin).toString();
+
+  const applyIcon = () => {
+    const head = document.head || document.getElementsByTagName('head')[0];
+    if (!head) return;
+
+    const links = head.querySelectorAll('link[rel~="icon"], link[rel="shortcut icon"]');
+    if (links.length) {
+      links.forEach((link) => link.setAttribute('href', url));
+    } else {
+      const link = document.createElement('link');
+      link.setAttribute('id', 'doc2json-favicon');
+      link.setAttribute('rel', 'icon');
+      link.setAttribute('type', 'image/png');
+      link.setAttribute('href', url);
+      head.appendChild(link);
+    }
+  };
+
+  const applyTitle = () => {
+    if (!document.title || document.title.toLowerCase() === 'gradio') {
+      document.title = 'Pattern2json';
+    }
+  };
+
+  applyIcon();
+  applyTitle();
+
+  const observer = new MutationObserver(() => {
+    applyIcon();
+    applyTitle();
+  });
+  observer.observe(document.head || document.documentElement, { childList: true, subtree: true });
 })();
 </script>
 """.strip().replace("__LOGO_URL__", LOGO_URL)

@@ -2,8 +2,10 @@
 from src.secrets import get_secret
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import HTTPException
+from fastapi.responses import HTMLResponse, FileResponse
 from starlette.staticfiles import StaticFiles
+from pathlib import Path
 
 
 def _install_proxy_headers(app: FastAPI) -> None:
@@ -114,6 +116,7 @@ app.include_router(external_api_router)
 # --- Static assets
 os.makedirs("images", exist_ok=True)
 os.makedirs("secrets/api_builder/images", exist_ok=True)
+LOGO_FILE = Path("images") / "Logo.png"
 app.mount(
     "/images",
     StaticFiles(directory="images", check_dir=False),
@@ -124,6 +127,13 @@ app.mount(
     StaticFiles(directory="secrets/api_builder/images", check_dir=False),
     name="api_images",
 )
+
+
+@app.get("/favicon.ico")
+async def favicon() -> FileResponse:
+    if LOGO_FILE.exists():
+        return FileResponse(LOGO_FILE)
+    raise HTTPException(status_code=404)
 
 # --- Simple pages
 protected_app = make_builder_app()  # Replace protected area with the builder UI
