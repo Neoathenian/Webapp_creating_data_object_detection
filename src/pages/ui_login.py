@@ -6,7 +6,7 @@ def _header_root(request: gr.Request):
     return render_header(path="/", request=request)
 
 def make_login_page() -> gr.Blocks:
-    with gr.Blocks() as login_page:
+    with gr.Blocks(title="Pattern2json") as login_page:
         hdr = gr.HTML()
         gr.Markdown("## Welcome\nThis is the public homepage. Please sign in to continue.")
         gr.Markdown("- Public info\n- Marketing copy\n- Whatever you want here")

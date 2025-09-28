@@ -21,7 +21,7 @@ BUILDER_JS = _read_asset("builder.js")
 
 
 def make_builder_app() -> gr.Blocks:
-    with gr.Blocks() as app:
+    with gr.Blocks(title="Pattern2json") as app:
         hdr = gr.HTML()
 
         # Layout + theming

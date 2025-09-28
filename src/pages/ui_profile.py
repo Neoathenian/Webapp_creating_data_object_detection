@@ -39,7 +39,7 @@ def _user_info(request: gr.Request):
 
 
 def make_profile_app() -> gr.Blocks:
-    with gr.Blocks() as profile_app:
+    with gr.Blocks(title="Pattern2json") as profile_app:
         hdr = gr.HTML()
 
         css = load_css("profile_page.css")

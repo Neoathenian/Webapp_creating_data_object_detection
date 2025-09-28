@@ -24,7 +24,7 @@ def _header_api_keys(request: gr.Request):
 
 
 def make_api_keys_app() -> gr.Blocks:
-    with gr.Blocks() as app:
+    with gr.Blocks(title="Pattern2json") as app:
         hdr = gr.HTML()
 
         css = load_css("api_keys.css")

@@ -7,7 +7,7 @@ def _header_payment(request: gr.Request):
 
 
 def make_payment_page() -> gr.Blocks:
-    with gr.Blocks() as payment_page:
+    with gr.Blocks(title="Pattern2json") as payment_page:
         hdr = gr.HTML()
 
         # Minimal inline CSS for clear, clickable cards

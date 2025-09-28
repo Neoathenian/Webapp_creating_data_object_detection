@@ -9,7 +9,7 @@ def _show_user(request: gr.Request):
     return gr.update(value=get_user(request))
 
 def make_protected_app() -> gr.Blocks:
-    with gr.Blocks() as protected_app:
+    with gr.Blocks(title="Pattern2json") as protected_app:
         hdr = gr.HTML()
         gr.Markdown("### Protected area (/app)")
 

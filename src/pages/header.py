@@ -29,9 +29,7 @@ FAVICON_SCRIPT = """
   };
 
   const applyTitle = () => {
-    if (!document.title || document.title.toLowerCase() === 'gradio') {
-      document.title = 'Pattern2json';
-    }
+    document.title = 'Pattern2json';
   };
 
   applyIcon();
