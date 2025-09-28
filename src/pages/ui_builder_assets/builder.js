@@ -174,8 +174,7 @@ async () => {
         w: Math.round(r.w * W),
         h: Math.round(r.h * H),
         seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * r.h * H)) : [],
-        extract_text: !!r.extract_text,
-        diacritics: !!r.diacritics
+        extract_text: !!r.extract_text
       }));
       const r = await fetch(`/builder/apis/${state.selected}`,{
         method:'PUT', headers:{'Content-Type':'application/json'},
@@ -301,7 +300,6 @@ async () => {
       selPanel.style.display = 'block';
       rectName.value = r.name || '';
       rectExtract.checked = !!r.extract_text;
-      try { document.getElementById('rect-diacritics').checked = !!r.diacritics; } catch {}
       setInspectorOpen(true);
       rectX.value = Math.round(r.x * state.img.naturalW);
       rectY.value = Math.round(r.y * state.img.naturalH);
@@ -440,8 +438,7 @@ function renderSepsInspector(r){
       w: r.w / W,
       h: r.h / H,
       seps: Array.isArray(r.seps) ? r.seps.map(s => (r.h ? s / r.h : 0) / H) : [],
-      extract_text: r.extract_text !== false,      // default TRUE ✅
-      diacritics: !!r.diacritics                   // default FALSE already ✅
+      extract_text: r.extract_text !== false       // default TRUE ✅
       })) : [];
     titleInp.value = doc.name || 'Untitled API';
     updateEndpoint(doc);
@@ -701,7 +698,7 @@ function renderSepsInspector(r){
       if (w > 0.002 && h > 0.002) {
         try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
         const id = 'r-' + Math.random().toString(36).slice(2, 9);
-      const rect = { id, name: '', x, y, w, h, extract_text: true, diacritics: false };
+      const rect = { id, name: '', x, y, w, h, extract_text: true };
         state.rects.push(rect);
         selectRect(id);
         markDirty(true);
@@ -751,15 +748,7 @@ function renderSepsInspector(r){
     const r = state.rects.find(x => x.id === id);
     if (!r) return; r.extract_text = !!rectExtract.checked; markDirty(true);
   };
-  try {
-    const rectDiacritics = document.getElementById('rect-diacritics');
-    rectDiacritics.onchange = () => {
-      try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
-      const id = overlay.dataset.selected || '';
-      const r = state.rects.find(x => x.id === id);
-      if (!r) return; r.diacritics = !!rectDiacritics.checked; markDirty(true);
-    };
-  } catch {}
+  
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
   function applyRectEdits(){
     try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}

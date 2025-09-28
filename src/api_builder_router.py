@@ -74,9 +74,8 @@ class Rect(BaseModel):
     # Horizontal separators inside the rectangle (pixels from top)
     seps: List[int] = Field(default_factory=list)
 
-    # NEW: flags you want to persist
+    # Flag to control text extraction
     extract_text: bool = True
-    diacritics: bool = False
 
     
 
