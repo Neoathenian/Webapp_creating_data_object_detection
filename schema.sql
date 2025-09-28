@@ -51,4 +51,13 @@ CREATE TABLE IF NOT EXISTS user_api_key (
 CREATE INDEX IF NOT EXISTS ix_user_api_key_storage_uid ON user_api_key (storage_uid);
 CREATE INDEX IF NOT EXISTS ix_user_api_key_user ON user_api_key (user_id);
 
+CREATE TABLE IF NOT EXISTS template_state (
+    user_id INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    api_name TEXT NOT NULL,
+    template_updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, api_name)
+);
+CREATE INDEX IF NOT EXISTS ix_template_state_user ON template_state (user_id);
+
 COMMIT;
