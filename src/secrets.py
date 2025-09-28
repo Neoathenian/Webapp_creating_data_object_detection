@@ -12,7 +12,7 @@ _CANDIDATE_KEY_NAMES = (
     "service-account.json",
     "service_account.json",
     "serviceAccount.json",
-    "marta-webapp-6239d9480c0d.json",
+    "doc2json-dev-6239d9480c0d.json",
 )
 
 

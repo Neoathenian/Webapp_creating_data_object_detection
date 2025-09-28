@@ -8,6 +8,26 @@ usage() {
   exit 1
 }
 
+ORIGINAL_ACCOUNT=$(gcloud config get-value account 2>/dev/null || true)
+restore_original_account() {
+  if [[ -n "${ORIGINAL_ACCOUNT}" ]]; then
+    gcloud config set account "${ORIGINAL_ACCOUNT}" >/dev/null 2>&1 || true
+  fi
+}
+trap restore_original_account EXIT
+
+resolve_path() {
+  local path="${1:-}"
+  if [[ -z "${path}" ]]; then
+    return 1
+  fi
+  if [[ "${path}" == /* ]]; then
+    printf '%s\n' "${path}"
+  else
+    printf '%s/%s\n' "${SCRIPT_DIR}" "${path}"
+  fi
+}
+
 ENVIRONMENT=${1:-prod}
 case "${ENVIRONMENT}" in
   dev|prod) ;;
@@ -55,7 +75,17 @@ print('\n'.join(values))
 PY
 )
 
-export PROJECT_ID=${PROJECT_ID:-marta-webapp}
+if ((${#ENV_FILE_VARS[@]})); then
+  for assignment in "${ENV_FILE_VARS[@]}"; do
+    [[ -z "${assignment}" ]] && continue
+    export "${assignment}"
+  done
+fi
+
+if [[ -z "${PROJECT_ID:-}" && -n "${GOOGLE_CLOUD_PROJECT:-}" ]]; then
+  PROJECT_ID="${GOOGLE_CLOUD_PROJECT}"
+fi
+export PROJECT_ID=${PROJECT_ID:-doc2json-dev}
 export REGION=${REGION:-europe-west1}
 export REPO_NAME=${REPO_NAME:-webapp}
 export SERVICE_NAME=${SERVICE_NAME:-api-builder-webapp}
@@ -72,8 +102,23 @@ export REBUILD_CACHE_IMAGE=${REBUILD_CACHE_IMAGE:-0}
 SECRET_PROJECT_ID=${SECRET_PROJECT_ID:-${PROJECT_ID}}
 SECRET_VERSION=${SECRET_VERSION:-latest}
 SECRET_NAMES=${SECRET_NAMES:-"GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET STRIPE_SECRET_KEY STRIPE_PRICE_ID_STARTER STRIPE_PRICE_ID_MEDIUM STRIPE_PRICE_ID_PRO STRIPE_WEBHOOK_SECRET GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_PROJECT INSTANCE_CONNECTION_NAME DB_NAME DB_USER DB_PASS CREDITS_PER_CENT ENV SESSION_SECRET"}
+USE_SERVICE_ACCOUNT=${GCLOUD_USE_SERVICE_ACCOUNT:-0}
 
 # Configure project and required APIs
+OWNER_ACCOUNT=${GCLOUD_OWNER_ACCOUNT:-}
+if [[ -z "${OWNER_ACCOUNT}" && -n "${ORIGINAL_ACCOUNT}" && "${ORIGINAL_ACCOUNT}" != *"gserviceaccount.com" ]]; then
+  OWNER_ACCOUNT="${ORIGINAL_ACCOUNT}"
+fi
+
+if [[ -n "${OWNER_ACCOUNT}" ]]; then
+  if [[ "${OWNER_ACCOUNT}" != "${ORIGINAL_ACCOUNT}" ]]; then
+    gcloud config set account "${OWNER_ACCOUNT}"
+  fi
+  echo "Using '${OWNER_ACCOUNT}' to enable required services." >&2
+else
+  echo "No owner account available to enable services. Set GCLOUD_OWNER_ACCOUNT or ensure current account can manage service usage." >&2
+fi
+
 gcloud config set project "${PROJECT_ID}"
 
 gcloud services enable \
@@ -81,6 +126,25 @@ gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
   --project "${PROJECT_ID}"
+
+if [[ "${USE_SERVICE_ACCOUNT}" == "1" ]]; then
+  SERVICE_ACCOUNT_KEY_FILE=${GCLOUD_SERVICE_ACCOUNT_KEY_FILE:-${GOOGLE_APPLICATION_CREDENTIALS:-}}
+  if [[ -n "${SERVICE_ACCOUNT_KEY_FILE}" ]]; then
+    if KEY_PATH=$(resolve_path "${SERVICE_ACCOUNT_KEY_FILE}"); then
+      if [[ -f "${KEY_PATH}" ]]; then
+        gcloud auth activate-service-account --key-file "${KEY_PATH}" --project "${PROJECT_ID}"
+      else
+        echo "Service account key file '${SERVICE_ACCOUNT_KEY_FILE}' not found (resolved to '${KEY_PATH}'); skipping service account activation." >&2
+      fi
+    fi
+  else
+    echo "USE_SERVICE_ACCOUNT=1 but no key file provided; skipping service account activation." >&2
+  fi
+else
+  echo "Skipping service account activation (USE_SERVICE_ACCOUNT=${USE_SERVICE_ACCOUNT})." >&2
+fi
+
+gcloud config set project "${PROJECT_ID}"
 
 gcloud auth configure-docker "${REGION}-docker.pkg.dev"
 
