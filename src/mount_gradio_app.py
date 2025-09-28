@@ -38,7 +38,7 @@ def add_middleware_redirect(app, app_route: str):
         path = request.url.path
 
         # If user is already authenticated and hits root, send to app
-        if path == "/" and request.session.get("user"):
+        if path == "/" and request.session.get("user") and not request.query_params.get("home"):
             # Always send authenticated users to the main protected app
             return RedirectResponse(url="/app/")
 

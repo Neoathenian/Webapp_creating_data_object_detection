@@ -84,7 +84,12 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
         '</a>'
     )
 
-    left_link = '<a href="/app/" class="hdr-link">Builder</a>' if user else ''
+    if user:
+        home_link = '<a href="/?home=1" class="hdr-link hdr-link--home">Home</a>'
+        builder_link = '<a href="/app/" class="hdr-link hdr-link--builder">Builder</a>'
+        left_link = f"{home_link}\n      {builder_link}"
+    else:
+        left_link = ''
 
     #in the <div><strong></strong> we could put some cool text or maybe a logo
     return f"""{css_block}

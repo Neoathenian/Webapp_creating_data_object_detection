@@ -154,8 +154,13 @@
 .hdr-link {
     color: #fff !important;
     font-weight: 600;
-    /* Nudge towards the center on wide screens */
+}
+.hdr-link--home {
+    /* Keep existing offset from the logo for first link */
     margin-left: 10vw;
+}
+.hdr-link--builder {
+    margin-left: 1.5rem;
 }
 .hdr-link:hover { text-decoration: underline; }
 
