@@ -66,12 +66,13 @@ html, body {
 }
 
 /* Emoji alignment fix */
-.pill .icon {
+/*.pill .icon {
   display: revert;
   align-items: center;
   justify-content: center;
   width: 18px;
   height: 18px;
   line-height: 1;
-  transform: translateY(-1px);  /* lift emoji slightly */
+  transform: translateY(-1px);
 }
+*/
