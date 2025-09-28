@@ -5,6 +5,29 @@ from starlette.requests import Request as StarletteRequest
 from src.login_logic import get_user
 from src.css.utils import load_css
 
+LOGO_URL = "/images/Logo.png"
+FAVICON_SCRIPT = """
+<script>
+(function() {
+  const url = "__LOGO_URL__";
+  const existing = document.querySelectorAll('link[rel~="icon"]');
+  if (existing.length) {
+    existing.forEach((link) => { link.href = url; });
+    return;
+  }
+  let link = document.getElementById('doc2json-favicon');
+  if (!link) {
+    link = document.createElement('link');
+    link.id = 'doc2json-favicon';
+    link.rel = 'icon';
+    link.type = 'image/png';
+    document.head.appendChild(link);
+  }
+  link.href = url;
+})();
+</script>
+""".strip().replace("__LOGO_URL__", LOGO_URL)
+
 def _credits_iframe() -> str:
     # Auto-resize iframe width to its content; keep height fixed by CSS.
     return """
@@ -26,7 +49,7 @@ def _credits_iframe() -> str:
 
 def _header_html(user: Optional[dict], path: str, request: Any) -> str:
     css = load_css("header.css")
-    css_block = f"<style>\n{css}\n</style>"
+    css_block = f"<style>\n{css}\n</style>\n{FAVICON_SCRIPT}"
 
     if user:
         name  = html.escape(user.get("name") or user.get("email") or "Signed in")
@@ -77,10 +100,7 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
     # Left-side: site logo (always) and optional Protected link (when logged in)
     logo_html = (
         '<a href="/" class="site-logo" aria-label="Home">'
-        '<svg viewBox="0 0 24 24" class="logo-svg" aria-hidden="true">'
-        '  <rect x="3" y="2" width="18" height="20" rx="3" ry="3" opacity=".25" />'
-        '  <rect x="6" y="5" width="12" height="4" rx="1" />'
-        '</svg>'
+        f'<img src="{LOGO_URL}" class="logo-img" alt="Doc2JSON" />'
         '</a>'
     )
 

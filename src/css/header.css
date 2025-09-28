@@ -165,9 +165,14 @@
 .hdr-link:hover { text-decoration: underline; }
 
 
-.site-logo .logo-svg {
-    width: 28px;
-    height: 28px;
+.site-logo {
+    display: inline-flex;
+    align-items: center;
+}
+.site-logo .logo-img {
+    width: 55px;
+    height: auto;
+    display: block;
 }
 .site-logo:hover { opacity: .9; }
 

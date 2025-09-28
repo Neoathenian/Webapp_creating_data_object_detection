@@ -10,7 +10,7 @@ from src.secrets import get_secret
 GRADIO_PUBLIC_PREFIXES = (
     "/gradio_api", "/file", "/assets", "/static", "/config",
     "/proxy", "/localfiles", "/theme.css", "/favicon.ico",
-    "/robots.txt", "/logo.png",
+    "/robots.txt", "/logo.png", "/images",
 )
 
 # Public non-auth endpoints

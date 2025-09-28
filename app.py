@@ -111,8 +111,14 @@ app.include_router(api_builder_router)
 app.include_router(api_key_router)
 app.include_router(external_api_router)
 
-# --- Static for API images (ensure directory exists first)
+# --- Static assets
+os.makedirs("images", exist_ok=True)
 os.makedirs("secrets/api_builder/images", exist_ok=True)
+app.mount(
+    "/images",
+    StaticFiles(directory="images", check_dir=False),
+    name="images",
+)
 app.mount(
     "/static/api_images",
     StaticFiles(directory="secrets/api_builder/images", check_dir=False),
