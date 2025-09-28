@@ -19,7 +19,8 @@
 	align-items: center;
 	justify-content: space-between;/* left and right separated */
 	padding: .75rem 1rem; /*vertical size of header*/
-	background-color: #3fae71; /* header background color */
+	background-color: #6A7BA2; /* header background color */
+	/*Colors I like #6A7BA2 #5FA8A3 #709FB0 #A89F91*/
 }
 
 /*aligns profile button*/
