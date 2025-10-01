@@ -158,10 +158,12 @@
 }
 .hdr-link--home {
     /* Keep existing offset from the logo for first link */
-    margin-left: 10vw;
+    margin-left: 4vw;
+	font-size: large;
 }
 .hdr-link--builder {
     margin-left: 1.5rem;
+	font-size: large;
 }
 .hdr-link:hover { text-decoration: underline; }
 
@@ -181,4 +183,10 @@
 .gradio-container footer,
 footer {
     display: none !important;
+}
+
+
+.logo-text-img{
+	height: 40px !important;
+	transform:  scale(1.9) translateX(10px) translateY(1px);
 }

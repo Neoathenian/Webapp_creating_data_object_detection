@@ -6,6 +6,7 @@ from src.login_logic import get_user
 from src.css.utils import load_css
 
 LOGO_URL = "/images/Logo.png"
+TEXT_LOGO_URL = "/images/Logo_text.png" 
 FAVICON_SCRIPT = """
 <script>
 (function() {
@@ -117,6 +118,7 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
     logo_html = (
         '<a href="/" class="site-logo" aria-label="Home">'
         f'<img src="{LOGO_URL}" class="logo-img" alt="Doc2JSON" />'
+        f'<img src="{TEXT_LOGO_URL}" class="logo-text-img" alt="Doc2JSON text" loading="lazy" />'
         '</a>'
     )
 
