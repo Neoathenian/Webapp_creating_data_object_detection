@@ -44,13 +44,24 @@
       </div>
     </div>
     <div class='integration-section integration-sample'>
-      <div class='integration-heading'>Python example</div>
-      <pre><code>mime_type, _ = mimetypes.guess_type(pathlib.Path(...))
+      <button
+        id='toggle-python-example'
+        class='integration-heading toggle-python'
+        type='button'
+        aria-expanded='false'
+        aria-controls='python-example-block'
+      >
+        Python example
+        <span class='toggle-chevron' aria-hidden='true'>▸</span>
+      </button>
+      <div id='python-example-block' class='python-example hidden'>
+        <pre><code>mime_type, _ = mimetypes.guess_type(pathlib.Path(...))
 with image_path.open("rb") as f:
     r = requests.post(API_URL,headers={"API-KEY": API_KEY},
                       files={"image": (image_path.name, f, mime_type)},
                       params={"model": "gemini-2.0-flash"},timeout=30)
     data = r.json()</code></pre>
+      </div>
     </div>
   </div>
   <div class='create-area' id='create-area'>

@@ -52,6 +52,8 @@ async () => {
   const endpointInp = document.getElementById('api-endpoint');
   const copyEndpointBtn = document.getElementById('btn-copy-endpoint');
   const keyHeaderLabel = document.getElementById('api-key-header');
+  const pythonToggle = document.getElementById('toggle-python-example');
+  const pythonSample = document.getElementById('python-example-block');
   const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
 
   function syncBaseAccess(doc) {
@@ -289,6 +291,13 @@ async () => {
       if (ok) flashButton(copyEndpointBtn);
       else window.alert('Unable to copy link automatically. Please copy it manually.');
     };
+  }
+
+  if (pythonToggle && pythonSample) {
+    pythonToggle.addEventListener('click', () => {
+      const hidden = pythonSample.classList.toggle('hidden');
+      pythonToggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+    });
   }
 
 
