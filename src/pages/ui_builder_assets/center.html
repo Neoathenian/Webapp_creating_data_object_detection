@@ -46,13 +46,11 @@
     </div>
     <div class='integration-section integration-sample'>
       <div class='integration-heading'>Python example</div>
-      <pre><code>mime_type, _ = mimetypes.guess_type(image_path)
+      <pre><code>mime_type, _ = mimetypes.guess_type(pathlib.Path(...))
 with image_path.open("rb") as f:
-    r = requests.post(API_URL,
-                      headers={"API-KEY": API_KEY},
+    r = requests.post(API_URL,headers={"API-KEY": API_KEY},
                       files={"image": (image_path.name, f, mime_type)},
-                      params={"model": "gemini-2.0-flash"},
-                      timeout=30)
+                      params={"model": "gemini-2.0-flash"},timeout=30)
     data = r.json()</code></pre>
     </div>
   </div>
