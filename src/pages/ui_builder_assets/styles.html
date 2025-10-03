@@ -67,13 +67,28 @@
   .toggle-chevron { font-size:14px; transition: transform .15s ease; }
   .toggle-python[aria-expanded='true'] .toggle-chevron { transform: rotate(90deg); }
   .integration-row { display:flex; gap:8px; align-items:center; }
+  .endpoint-field { position:relative; flex:1; }
+  .endpoint-field .endpoint-input { padding-right:42px; }
+  .copy-endpoint-btn { position:absolute; top:50%; right:10px; transform:translateY(-50%); padding:6px; border-radius:8px; border:1px solid transparent; background:#fff; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+  .copy-endpoint-btn svg { width:18px; height:18px; stroke:#374151; fill:none; stroke-width:1.8; }
+  .copy-endpoint-btn:hover { background:#f3f4f6; border-color:#d1d5db; }
+  .copy-endpoint-btn:active { background:#e5e7eb; }
+  .copy-endpoint-btn:disabled { cursor:not-allowed; opacity:.5; border-color:transparent; }
+  .copy-endpoint-btn.copied { border-color:#34d399; background:#ecfdf5; }
+  .copy-endpoint-btn.copied svg { stroke:#059669; }
   .integration-input { flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; font-family:monospace; font-size:13px; }
-  .endpoint-section { flex:1 1 520px; }
-  .endpoint-input { flex:1 1 640px; width:100%; max-width:none; }
+  .endpoint-section { flex:0 1 520px; max-width:520px; }
+  .endpoint-input { flex:1 1 auto; width:100%; max-width:520px; }
   .integration-sample { flex:0 1 240px; }
   .integration-sample pre { margin:0; padding:12px; border-radius:10px; background:#f3f4f6; color:#1f2937; font-size:12px; line-height:1.4; overflow:auto; border:1px solid #d1d5db; }
   .integration-sample code { font-family: 'Fira Code', 'Source Code Pro', monospace; display:block; white-space:pre; }
-  .python-example { margin-top:8px; }
+  .python-example { margin-top:8px; position:relative; }
+  .copy-example-btn { position:absolute; top:10px; right:10px; padding:6px; border-radius:8px; border:1px solid #d1d5db; background:#fff; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+  .copy-example-btn svg { width:18px; height:18px; stroke:#374151; fill:none; stroke-width:1.8; }
+  .copy-example-btn:hover { background:#f3f4f6; }
+  .copy-example-btn:active { background:#e5e7eb; }
+  .copy-example-btn.copied { border-color:#34d399; background:#ecfdf5; }
+  .copy-example-btn.copied svg { stroke:#059669; }
   .integration-input.highlight { background:#fff7ed; border-color:#f97316; }
   .integration-note { font-size:12px; color:#6b7280; }
   .integration-status { font-size:13px; color:#374151; }

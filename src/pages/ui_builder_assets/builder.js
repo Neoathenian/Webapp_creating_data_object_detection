@@ -54,6 +54,8 @@ async () => {
   const keyHeaderLabel = document.getElementById('api-key-header');
   const pythonToggle = document.getElementById('toggle-python-example');
   const pythonSample = document.getElementById('python-example-block');
+  const copyPythonBtn = document.getElementById('btn-copy-python-example');
+  const pythonCodeBlock = pythonSample ? pythonSample.querySelector('code') : null;
   const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
 
   function syncBaseAccess(doc) {
@@ -145,6 +147,18 @@ async () => {
 
   function flashButton(btn) {
     if (!btn) return;
+    const hasIcon = !!btn.querySelector('svg');
+    if (hasIcon) {
+      const prevTitle = btn.dataset.prevTitle || btn.title || 'Copy';
+      btn.dataset.prevTitle = prevTitle;
+      btn.title = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.title = btn.dataset.prevTitle || prevTitle;
+      }, 1500);
+      return;
+    }
     const prev = btn.dataset.prevLabel || btn.textContent || 'Copy';
     btn.dataset.prevLabel = prev;
     btn.textContent = 'Copied!';
@@ -297,6 +311,21 @@ async () => {
     pythonToggle.addEventListener('click', () => {
       const hidden = pythonSample.classList.toggle('hidden');
       pythonToggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+    });
+  }
+
+  if (copyPythonBtn && pythonCodeBlock) {
+    copyPythonBtn.addEventListener('click', async () => {
+      const sample = pythonCodeBlock.textContent || '';
+      if (!sample.trim()) return;
+      const ok = await copyToClipboard(sample);
+      if (!ok) {
+        if (typeof window !== 'undefined' && window.alert) {
+          window.alert('Unable to copy example automatically. Please copy it manually.');
+        }
+        return;
+      }
+      flashButton(copyPythonBtn);
     });
   }
 
