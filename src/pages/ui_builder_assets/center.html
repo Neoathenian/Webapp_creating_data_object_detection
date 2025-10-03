@@ -36,13 +36,24 @@
   </button>
 </div>
   <div class='integration-panel' id='integration-panel'>
-    <div class='integration-section'>
+    <div class='integration-section endpoint-section'>
       <div class='integration-heading'>Endpoint</div>
       <div class='integration-row'>
-        <input id='api-endpoint' class='integration-input' type='text' value='Select an API to view its link' readonly />
+        <input id='api-endpoint' class='integration-input endpoint-input' type='text' value='Select an API to view its link' readonly />
         <button id='btn-copy-endpoint' class='btn small' type='button'>Copy</button>
       </div>
       <div class='integration-note'>Call with header <code id='api-key-header'>API-KEY</code>; path is tied to the API name.</div>
+    </div>
+    <div class='integration-section integration-sample'>
+      <div class='integration-heading'>Python example</div>
+      <pre><code>mime_type, _ = mimetypes.guess_type(image_path)
+with image_path.open("rb") as f:
+    r = requests.post(API_URL,
+                      headers={"API-KEY": API_KEY},
+                      files={"image": (image_path.name, f, mime_type)},
+                      params={"model": "gemini-2.0-flash"},
+                      timeout=30)
+    data = r.json()</code></pre>
     </div>
   </div>
   <div class='create-area' id='create-area'>

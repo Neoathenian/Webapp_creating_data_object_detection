@@ -60,11 +60,16 @@
   .save-btn { padding: 8px 14px; border-radius: 8px; border:1px solid #10b981; background:#10b981; color:#fff; cursor:pointer; font-size:14px; }
   .save-btn[disabled] { opacity:.5; cursor:not-allowed; }
 
-  .integration-panel { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:16px; }
-  .integration-section { flex:1 1 280px; display:flex; flex-direction:column; gap:10px; }
+  .integration-panel { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:16px; align-items:stretch; }
+  .integration-section { flex:1 1 260px; display:flex; flex-direction:column; gap:10px;}
   .integration-heading { font-weight:600; font-size:14px; color:#111827; }
   .integration-row { display:flex; gap:8px; align-items:center; }
   .integration-input { flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; font-family:monospace; font-size:13px; }
+  .endpoint-section { flex:1 1 520px; }
+  .endpoint-input { flex:1 1 640px; width:100%; max-width:none; }
+  .integration-sample { flex:0 1 240px; }
+  .integration-sample pre { margin:0; padding:12px; border-radius:10px; background:#f3f4f6; color:#1f2937; font-size:12px; line-height:1.4; overflow:auto; border:1px solid #d1d5db; }
+  .integration-sample code { font-family: 'Fira Code', 'Source Code Pro', monospace; display:block; white-space:pre; }
   .integration-input.highlight { background:#fff7ed; border-color:#f97316; }
   .integration-note { font-size:12px; color:#6b7280; }
   .integration-status { font-size:13px; color:#374151; }
