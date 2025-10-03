@@ -54,15 +54,52 @@ async () => {
   const keyHeaderLabel = document.getElementById('api-key-header');
   const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
 
+  function syncBaseAccess(doc) {
+    if (!doc) return;
+    doc._baseAccessUrl = doc.access_url || doc._baseAccessUrl || '';
+  }
+
+  function buildAccessPreview(baseUrl, name) {
+    if (!baseUrl) return '';
+    const trimmedName = (name || '').trim();
+    const effectiveName = trimmedName || 'Untitled API';
+    let core = baseUrl;
+    let suffix = '';
+    const hashIdx = core.indexOf('#');
+    if (hashIdx >= 0) {
+      suffix = core.slice(hashIdx);
+      core = core.slice(0, hashIdx);
+    }
+    let query = '';
+    const qIdx = core.indexOf('?');
+    if (qIdx >= 0) {
+      query = core.slice(qIdx);
+      core = core.slice(0, qIdx);
+    }
+    const slashIdx = core.lastIndexOf('/');
+    if (slashIdx < 0) {
+      return `${effectiveName}${query}${suffix}`;
+    }
+    const prefix = core.slice(0, slashIdx + 1);
+    return `${prefix}${effectiveName}${query}${suffix}`;
+  }
+
   function markDirty(d=true){
     state.dirty = !!d;
     const cur = state.apis.find(a=>a.id===state.selected);
     const isPending = !!(cur && cur.pending);
+    let cleared = false;
+    if (!state.dirty && cur && cur._pendingName) {
+      delete cur._pendingName;
+      cleared = true;
+      updateEndpoint(cur);
+    }
     btnSave.disabled = !state.dirty || !state.selected || isPending;
     if (btnDelete) {
       const canDelete = !!(state.selected && !isPending && !state.deleting);
       btnDelete.disabled = !canDelete;
     }
+    if (cleared) renderList();
   }
 
   function updateEndpoint(doc) {
@@ -182,9 +219,12 @@ async () => {
       });
       if (!r.ok) throw new Error('save');
       const doc = await r.json();
+      syncBaseAccess(doc);
+      if (doc._pendingName) delete doc._pendingName;
       // Update local cache entry
       const i = state.apis.findIndex(a=>a.id===doc.id);
       if (i>=0) state.apis[i] = doc; else state.apis.unshift(doc);
+      if (doc.id === state.selected) updateEndpoint(doc);
       renderList();
       markDirty(false);
       return true;
@@ -252,7 +292,8 @@ async () => {
       li.dataset.id = it.id;
       const thumb = document.createElement('div'); thumb.className = 'thumb';
       const img = document.createElement('img'); img.src = it.image_url; thumb.appendChild(img);
-      const label = document.createElement('div'); label.textContent = it.name || 'Untitled';
+      const labelText = (it._pendingName ?? it.name) || 'Untitled';
+      const label = document.createElement('div'); label.textContent = labelText;
       li.appendChild(thumb); li.appendChild(label);
       li.onclick = async () => {
         if (it.pending) return; // ignore clicks while uploading
@@ -271,6 +312,7 @@ async () => {
       const r = await fetch('/builder/apis');
       const j = await r.json();
       state.apis = Array.isArray(j) ? j : [];
+      state.apis.forEach(syncBaseAccess);
       state.loaded = true;
     } catch { state.apis = []; state.loaded = true; }
     if (state.selected && !state.apis.find(a=>a.id===state.selected)) state.selected = null;
@@ -421,6 +463,8 @@ function renderSepsInspector(r){
   async function loadApi(id) {
     const doc = state.apis.find(a => a.id === id);
     if (!doc) { console.warn('API not found in cache'); return; }
+    syncBaseAccess(doc);
+    if (doc._pendingName) delete doc._pendingName;
     state.selected = id;
     // Wait image load to set sizes without altering user zoom
     hint.style.display = 'none';
@@ -512,8 +556,24 @@ function renderSepsInspector(r){
     setZoom(v/100);
   };
 
-  // Title changes mark dirty; save is explicit via button
-  titleInp.oninput = () => { if (state.selected) markDirty(true); };
+  // Title changes mark dirty; preview endpoint updates live
+  titleInp.oninput = () => {
+    if (!state.selected) return;
+    markDirty(true);
+    const doc = state.apis.find(a => a.id === state.selected);
+    if (!doc) return;
+    const previewName = (titleInp.value || '').trim() || 'Untitled API';
+    doc._pendingName = previewName;
+    syncBaseAccess(doc);
+    const baseUrl = doc._baseAccessUrl || doc.access_url || '';
+    if (baseUrl) {
+      const previewUrl = buildAccessPreview(baseUrl, previewName);
+      updateEndpoint({ access_url: previewUrl });
+    } else {
+      updateEndpoint(null);
+    }
+    renderList();
+  };
 
   // Drawing & Panning
   let drawing = null; // {startX,startY,el}
@@ -821,6 +881,7 @@ function renderSepsInspector(r){
       const r = await fetch('/builder/apis', { method: 'POST', body: fd });
       if (!r.ok) throw new Error('upload');
       const doc = await r.json();
+      syncBaseAccess(doc);
       // Replace placeholder with real doc
       const idx = state.apis.findIndex(a=>a.id===tmpId);
       if (idx>=0) state.apis.splice(idx,1,doc); else state.apis.unshift(doc);
