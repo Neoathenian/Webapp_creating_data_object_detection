@@ -1,7 +1,7 @@
 <!-- Inline CSS that styles the UI Builder layout, sidebars, and interactions. -->
 
 <style>
-  :root { --top: 56px; --side: 280px; --insp: 320px; }
+  :root { --top: 70px; --side: 280px; --insp: 320px; }
 
   #builder-root { position: relative; width: 100vw; min-height: calc(100vh - var(--top)); }
 
@@ -130,7 +130,7 @@ button.toggle-python { display:inline-flex; align-items:center; gap:8px; padding
 
   /* Right inspector */
   #inspector { position: fixed; top: var(--top); right: 0; height: calc(100vh - var(--top)); width: var(--insp);
-    background:#fff; border-left: 1px solid #e5e7eb; box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    background:#fff; border-left: 1px solid #e5e7eb; box-shadow: 0 2px 10px rgba(0,0,0,.05); z-index: 10000;
     padding: 12px 14px; transform: translateX(100%); opacity: .0; transition: transform .18s ease, opacity .18s ease; overflow:auto; }
   #inspector.open { transform: translateX(0); opacity: 1; }
   #inspector h3 { margin: 4px 0 8px; font-size: 14px; }
