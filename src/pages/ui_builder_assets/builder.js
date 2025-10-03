@@ -153,6 +153,7 @@ async () => {
   // --- Simple history (rectangles only)
   const history = { undo: [], redo: [] };
   const cloneRects = () => JSON.parse(JSON.stringify(state.rects||[]));
+  let keyNudgeActive = false;
   function pushHistory(){ history.undo.push(cloneRects()); history.redo.length = 0; }
   function applyRects(rects){ state.rects = JSON.parse(JSON.stringify(rects||[])); renderRects(); const cur = state.rects.find(x=>x.id===overlay.dataset.selected); try{ renderSepsInspector(cur); }catch{} markDirty(true); }
   function undo(){ if(!history.undo.length) return; history.redo.push(cloneRects()); const prev = history.undo.pop(); applyRects(prev); }
@@ -244,6 +245,40 @@ async () => {
     const y = (e.key === 'y' || e.key === 'Y');
     if ((e.ctrlKey || e.metaKey) && z) { e.preventDefault(); undo(); }
     else if ((e.ctrlKey || e.metaKey) && y) { e.preventDefault(); redo(); }
+    else if (!e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      if (state.mode !== 'select' || !state.selected) return;
+      const rectId = overlay.dataset.selected || '';
+      if (!rectId) return;
+      const active = document.activeElement;
+      const tag = (active && active.tagName) ? active.tagName.toLowerCase() : '';
+      const isEditing = !!(active && (active.isContentEditable || ['input','textarea','select'].includes(tag)));
+      if (isEditing) return;
+      const rect = state.rects.find(r => r.id === rectId);
+      if (!rect) return;
+      const step = e.shiftKey ? 10 : 1;
+      let dx = 0, dy = 0;
+      if (e.key === 'ArrowLeft') dx = -step;
+      else if (e.key === 'ArrowRight') dx = step;
+      else if (e.key === 'ArrowUp') dy = -step;
+      else if (e.key === 'ArrowDown') dy = step;
+      const canMove = nudgeSelectedRect(rect, dx, dy, { preview: true });
+      if (!canMove) { e.preventDefault(); return; }
+      if (!keyNudgeActive) {
+        try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+        keyNudgeActive = true;
+      }
+      const moved = nudgeSelectedRect(rect, dx, dy);
+      if (moved) {
+        e.preventDefault();
+        markDirty(true);
+      }
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      keyNudgeActive = false;
+    }
   });
 
   if (copyEndpointBtn) {
@@ -283,6 +318,31 @@ async () => {
   }
 
   function percentClamp(v) { return Math.max(0, Math.min(1, v)); }
+
+  function nudgeSelectedRect(rect, dx, dy, { preview = false } = {}) {
+    if (!rect) return false;
+    const W = state.img.naturalW;
+    const H = state.img.naturalH;
+    if (!W || !H) return false;
+    const curX = Math.round(rect.x * W);
+    const curY = Math.round(rect.y * H);
+    const widthPx = Math.max(1, Math.round(rect.w * W));
+    const heightPx = Math.max(1, Math.round(rect.h * H));
+    const maxX = Math.max(0, W - widthPx);
+    const maxY = Math.max(0, H - heightPx);
+    const nextX = clamp(curX + dx, 0, maxX);
+    const nextY = clamp(curY + dy, 0, maxY);
+    if (nextX === curX && nextY === curY) return false;
+    if (preview) return true;
+    rect.x = nextX / W;
+    rect.y = nextY / H;
+    if (overlay.dataset.selected === rect.id) {
+      if (rectX) rectX.value = String(nextX);
+      if (rectY) rectY.value = String(nextY);
+    }
+    renderRects();
+    return true;
+  }
 
   function renderList() {
     listEl.innerHTML = '';
@@ -331,12 +391,14 @@ async () => {
     rectExtract.checked = true;
     for (const el of overlay.querySelectorAll('.rect')) el.classList.remove('selected');
     overlay.dataset.selected = '';
+    keyNudgeActive = false;
     setInspectorOpen(false);
     if (!skipRender) renderRects();
   }
 
   function selectRect(id) {
     overlay.dataset.selected = id || '';
+    keyNudgeActive = false;
     const r = state.rects.find(x => x.id === id);
     if (r) {
       selPanel.style.display = 'block';
