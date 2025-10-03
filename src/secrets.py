@@ -9,10 +9,7 @@ from google.cloud import secretmanager
 
 
 _CANDIDATE_KEY_NAMES = (
-    "service-account.json",
-    "service_account.json",
-    "serviceAccount.json",
-    "doc2json-dev-6239d9480c0d.json",
+    "billing_dev_sa.json",
 )
 
 
