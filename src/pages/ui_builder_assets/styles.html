@@ -62,8 +62,10 @@
   .integration-panel { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:16px; align-items:stretch; }
   .integration-section { flex:1 1 260px; display:flex; flex-direction:column; gap:10px;}
   .integration-heading { font-weight:600; font-size:14px; color:#111827; }
-  .toggle-python { display:flex; justify-content:space-between; align-items:center; width:100%; padding:0; border:none; background:none; font:inherit; color:inherit; cursor:pointer; }
+  button.toggle-python { display:inline-flex; align-items:center; gap:8px; padding:5px 10px; border-radius:9999px; border:1px solid #d1d5db; background:#fff; font:inherit; color:inherit; cursor:pointer; align-self:flex-start; transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease; }
+  .toggle-python:hover { background:#f3f4f6; border-color:#cbd5f5; }
   .toggle-python:focus { outline:2px solid #2563eb; outline-offset:2px; }
+  .toggle-python[aria-expanded='true'] { background:#e0ecff; border-color:#93c5fd; }
   .toggle-chevron { font-size:14px; transition: transform .15s ease; }
   .toggle-python[aria-expanded='true'] .toggle-chevron { transform: rotate(90deg); }
   .integration-row { display:flex; gap:8px; align-items:center; }
