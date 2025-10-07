@@ -4,7 +4,7 @@ import json
 import os
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Union
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi import Request
@@ -87,9 +87,138 @@ class ApiMeta(BaseModel):
     updated_at: str
     image_blob: str  # gs blob where the image is stored
     image_url: Optional[str] = None  # computed on read
-    rects: List[Rect] = Field(default_factory=list)
-    references: List[str] = Field(default_factory=list)
-    noise: List[str] = Field(default_factory=list)
+    extract_text: List[Rect] = Field(default_factory=list)
+    references: List[Rect] = Field(default_factory=list)
+    noise: List[Rect] = Field(default_factory=list)
+
+
+def _clean_rect(rect: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(rect or {})
+    rid = str(data.get("id") or "").strip()
+    if not rid:
+        rid = uuid.uuid4().hex
+    data["id"] = rid
+    data["name"] = str(data.get("name") or "")
+    x_val = data.get("x", data.get("left", 0))
+    y_val = data.get("y", data.get("top", 0))
+    w_val = data.get("w", data.get("width", 1))
+    h_val = data.get("h", data.get("height", 1))
+    try:
+        x_int = int(round(float(x_val)))
+    except (TypeError, ValueError):
+        x_int = 0
+    try:
+        y_int = int(round(float(y_val)))
+    except (TypeError, ValueError):
+        y_int = 0
+    try:
+        w_int = max(1, int(round(float(w_val))))
+    except (TypeError, ValueError):
+        w_int = 1
+    try:
+        h_int = max(1, int(round(float(h_val))))
+    except (TypeError, ValueError):
+        h_int = 1
+    data["x"] = x_int
+    data["y"] = y_int
+    data["w"] = w_int
+    data["h"] = h_int
+    data["width"] = w_int
+    data["height"] = h_int
+    seps = []
+    for s in data.get("seps", []):
+        try:
+            seps.append(int(round(float(s))))
+        except (TypeError, ValueError):
+            continue
+    data["seps"] = seps
+    data.pop("extract_text", None)
+    return data
+
+
+def _sanitize_rect_input(
+    raw: Union[Rect, Dict[str, Any], str, None],
+    existing: Dict[str, Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if raw is None:
+        return None
+    if isinstance(raw, Rect):
+        data = raw.model_dump()
+    elif isinstance(raw, dict):
+        data = dict(raw)
+    elif isinstance(raw, str):
+        lookup = existing.get(raw)
+        data = dict(lookup) if lookup else None
+        if data is None:
+            return None
+    else:
+        return None
+
+    rid = str(data.get("id") or "").strip()
+    if rid and rid in existing:
+        base = dict(existing[rid])
+        for key, value in data.items():
+            if value is not None:
+                base[key] = value
+        data = base
+
+    rect = _clean_rect(data)
+    existing[rect["id"]] = rect
+    return rect
+
+
+def _normalize_doc_structure(doc: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(doc, dict):
+        return doc
+
+    raw_rects = doc.get("rects") if isinstance(doc.get("rects"), list) else []
+    raw_extract = doc.get("extract_text") if isinstance(doc.get("extract_text"), list) else []
+    raw_references = doc.get("references") if isinstance(doc.get("references"), list) else []
+    raw_noise = doc.get("noise") if isinstance(doc.get("noise"), list) else []
+
+    existing: Dict[str, Dict[str, Any]] = {}
+    extract_target: List[Dict[str, Any]] = []
+    reference_target: List[Dict[str, Any]] = []
+    noise_target: List[Dict[str, Any]] = []
+    extract_ids: Set[str] = set()
+    reference_ids: Set[str] = set()
+    noise_ids: Set[str] = set()
+
+    for raw in raw_rects:
+        rect = _sanitize_rect_input(raw, existing)
+        if not rect:
+            continue
+        rid = rect["id"]
+        if getattr(raw, "extract_text", None) is False or (isinstance(raw, dict) and raw.get("extract_text") is False):
+            if rid not in noise_ids:
+                noise_target.append(dict(rect))
+                noise_ids.add(rid)
+        else:
+            if rid not in extract_ids:
+                extract_target.append(dict(rect))
+                extract_ids.add(rid)
+    if "rects" in doc:
+        doc.pop("rects", None)
+
+    def _merge_group(raw_items: Iterable[Any], target: List[Dict[str, Any]], seen: Set[str]) -> None:
+        for item in raw_items:
+            rect = _sanitize_rect_input(item, existing)
+            if not rect:
+                continue
+            rid = rect["id"]
+            if rid in seen:
+                continue
+            seen.add(rid)
+            target.append(dict(rect))
+
+    _merge_group(raw_extract, extract_target, extract_ids)
+    _merge_group(raw_references, reference_target, reference_ids)
+    _merge_group(raw_noise, noise_target, noise_ids)
+
+    doc["extract_text"] = extract_target
+    doc["references"] = reference_target
+    doc["noise"] = noise_target
+    return doc
 
 
 def _load_api(uid: str, api_id: str) -> Dict[str, Any]:
@@ -97,11 +226,7 @@ def _load_api(uid: str, api_id: str) -> Dict[str, Any]:
     if not found:
         raise HTTPException(status_code=404, detail="API not found")
     doc, _ = found
-    if not isinstance(doc.get("references"), list):
-        doc["references"] = []
-    if not isinstance(doc.get("noise"), list):
-        doc["noise"] = []
-    return doc
+    return _normalize_doc_structure(doc)
 
 
 def _save_api(doc: Dict[str, Any]) -> None:
@@ -129,11 +254,9 @@ def list_apis(request: Request):
     uid = _user_id(request)
     items = _list_user_apis(uid)
     # Attach image_url and strip heavy fields for list view
-    for it in items:
-        if not isinstance(it.get("references"), list):
-            it["references"] = []
-        if not isinstance(it.get("noise"), list):
-            it["noise"] = []
+    for idx, it in enumerate(items):
+        it = _normalize_doc_structure(it)
+        items[idx] = it
         # Prefer signed URL for faster direct load
         url = None
         try:
@@ -185,7 +308,7 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
         "created_at": now,
         "updated_at": now,
         "image_blob": img_blob,
-        "rects": [],
+        "extract_text": [],
         "references": [],
         "noise": [],
     }
@@ -197,7 +320,7 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
     except Exception:
         url = None
 
-    resp = dict(doc)
+    resp = _normalize_doc_structure(dict(doc))
     resp["image_url"] = url or f"/builder/images/{api_id}"
     resp["access_url"] = _object_api_url(resp)
     return resp
@@ -214,7 +337,7 @@ def get_api(api_id: str, request: Request):
         url = signed_url(doc.get("image_blob") or "", minutes=20)
     except Exception:
         url = None
-    resp = dict(doc)
+    resp = _normalize_doc_structure(dict(doc))
     resp["image_url"] = url or f"/builder/images/{api_id}"
     resp["access_url"] = _object_api_url(resp)
     return resp
@@ -223,8 +346,9 @@ def get_api(api_id: str, request: Request):
 class ApiUpdate(BaseModel):
     name: Optional[str] = None
     rects: Optional[List[Rect]] = None
-    references: Optional[List[str]] = None
-    noise: Optional[List[str]] = None
+    extract_text: Optional[List[Union[str, Rect, Dict[str, Any]]]] = None
+    references: Optional[List[Union[str, Rect, Dict[str, Any]]]] = None
+    noise: Optional[List[Union[str, Rect, Dict[str, Any]]]] = None
 
 
 @router.put("/apis/{api_id}")
@@ -238,7 +362,6 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     changed = False
-    valid_rect_ids: Optional[Set[str]] = None
     if upd.name is not None:
         new_name = (upd.name or "").strip() or doc.get("name") or ""
         if not new_name:
@@ -273,59 +396,46 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
             except Exception:
                 pass
             changed = False  # already saved
-    if upd.rects is not None:
-        # Coerce to plain dicts and ensure pixel values are ints
-        pixel_rects = []
-        for r in upd.rects:
-            if isinstance(r, Rect):
-                d = r.model_dump()
-            else:
-                d = dict(r)
-            # Ensure pixel values are ints
-            d["x"] = int(round(d.get("x", 0)))
-            d["y"] = int(round(d.get("y", 0)))
-            d["w"] = int(round(d.get("w", 1)))
-            d["h"] = int(round(d.get("h", 1)))
-            d["seps"] = [int(round(s)) for s in d.get("seps", [])]
-            pixel_rects.append(d)
-        doc["rects"] = pixel_rects
-        valid_rect_ids = {str(d.get("id")) for d in pixel_rects if d.get("id")}
-        changed = True
-    else:
-        existing_rects = doc.get("rects") or []
-        if isinstance(existing_rects, list):
-            valid_rect_ids = {
-                str(r.get("id"))
-                for r in existing_rects
-                if isinstance(r, dict) and r.get("id")
-            }
-        else:
-            valid_rect_ids = set()
+    doc = _normalize_doc_structure(doc)
+    existing_lookup: Dict[str, Dict[str, Any]] = {}
+    for group_name in ("extract_text", "references", "noise"):
+        for entry in doc.get(group_name, []) or []:
+            if isinstance(entry, dict) and entry.get("id"):
+                existing_lookup[str(entry["id"])] = dict(entry)
 
-    def sanitize_group(values: Optional[List[str]]) -> List[str]:
+    rect_payload_for_default: List[Dict[str, Any]] = []
+    if upd.rects is not None:
+        for raw in upd.rects:
+            rect = _sanitize_rect_input(raw, existing_lookup)
+            if rect:
+                rect_payload_for_default.append(dict(rect))
+        if rect_payload_for_default and upd.extract_text is None:
+            doc["extract_text"] = rect_payload_for_default.copy()
+            changed = True
+
+    def apply_group(values: Optional[List[Union[str, Rect, Dict[str, Any]]]], key: str) -> None:
+        nonlocal changed
+        if values is None:
+            return
+        sanitized: List[Dict[str, Any]] = []
         seen: Set[str] = set()
-        cleaned: List[str] = []
-        if not values:
-            return []
-        for raw in values:
-            if raw is None:
+        for item in values:
+            rect = _sanitize_rect_input(item, existing_lookup)
+            if not rect:
                 continue
-            rid = str(raw)
+            rid = rect["id"]
             if rid in seen:
                 continue
-            if valid_rect_ids and rid not in valid_rect_ids:
-                continue
             seen.add(rid)
-            cleaned.append(rid)
-        return cleaned
-
-    if upd.references is not None:
-        doc["references"] = sanitize_group(upd.references)
+            sanitized.append(dict(rect))
+        doc[key] = sanitized
         changed = True
 
-    if upd.noise is not None:
-        doc["noise"] = sanitize_group(upd.noise)
-        changed = True
+    apply_group(upd.extract_text, "extract_text")
+    apply_group(upd.references, "references")
+    apply_group(upd.noise, "noise")
+
+    doc = _normalize_doc_structure(doc)
 
     if changed:
         doc["updated_at"] = _now_iso()
@@ -337,7 +447,7 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
         url = signed_url(doc.get("image_blob") or "", minutes=20)
     except Exception:
         url = None
-    resp = dict(doc)
+    resp = _normalize_doc_structure(dict(doc))
     resp["image_url"] = url or f"/builder/images/{api_id}"
     resp["access_url"] = _object_api_url(resp)
     return resp

@@ -223,27 +223,40 @@ async () => {
     try{
       // Convert rects to pixel units before sending
       const W = state.img.naturalW, H = state.img.naturalH;
-      const pixelRects = (state.rects || []).map(r => ({
-        id: r.id,
-        name: r.name || '',
-        x: Math.round(r.x * W),
-        y: Math.round(r.y * H),
-        w: Math.round(r.w * W),
-        h: Math.round(r.h * H),
-        seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * r.h * H)) : [],
-        extract_text: !!r.extract_text
-      }));
+      const rectLookup = new Map();
+      const buildPixelRect = (r) => {
+        const px = {
+          id: r.id,
+          name: r.name || '',
+          x: Math.round(r.x * W),
+          y: Math.round(r.y * H),
+          w: Math.round(r.w * W),
+          h: Math.round(r.h * H),
+          seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * Math.max(r.h * H, 1))) : [],
+        };
+        rectLookup.set(px.id, px);
+        return px;
+      };
+      const extractText = [];
       const references = [];
       const noise = [];
       for (const rect of state.rects || []) {
-        if (rect.reference) references.push(rect.id);
-        if (rect.noise) noise.push(rect.id);
+        const px = buildPixelRect(rect);
+        const hasExtract = !!rect.extract_text;
+        const hasReference = !!rect.reference;
+        const hasNoise = !!rect.noise;
+        if (hasExtract) extractText.push({ ...px });
+        if (hasReference) references.push({ ...px });
+        if (hasNoise) noise.push({ ...px });
+        if (!hasExtract && !hasReference && !hasNoise) {
+          noise.push({ ...px });
+        }
       }
       const r = await fetch(`/builder/apis/${state.selected}`,{
         method:'PUT', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           name: titleInp.value || 'Untitled API',
-          rects: pixelRects,
+          extract_text: extractText,
           references,
           noise
         })
@@ -598,19 +611,72 @@ function renderSepsInspector(r){
     state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
     // Convert pixel rects to normalized rects for display
     const W = state.img.naturalW, H = state.img.naturalH;
-    const referenceIds = new Set(Array.isArray(doc.references) ? doc.references : []);
-    const noiseIds = new Set(Array.isArray(doc.noise) ? doc.noise : []);
-    state.rects = Array.isArray(doc.rects) ? doc.rects.map(r => ({
-      ...r,
-      x: r.x / W,
-      y: r.y / H,
-      w: r.w / W,
-      h: r.h / H,
-      seps: Array.isArray(r.seps) ? r.seps.map(s => (r.h ? s / r.h : 0) / H) : [],
-      extract_text: r.extract_text !== false,      // default TRUE ✅
-      reference: referenceIds.has(r.id),
-      noise: noiseIds.has(r.id)
-      })) : [];
+    const toArray = (value) => (Array.isArray(value) ? value : []);
+    const extractList = toArray(doc.extract_text);
+    const referenceList = toArray(doc.references);
+    const noiseList = toArray(doc.noise);
+    const fallbackRects = Array.isArray(doc.rects) ? doc.rects : [];
+
+    if (!extractList.length && fallbackRects.length) {
+      for (const r of fallbackRects) {
+        if (r && r.extract_text !== false) extractList.push(r);
+      }
+    }
+
+    let anonCounter = 0;
+    const rectMap = new Map();
+    const getNumber = (value, fallback = 0) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : fallback;
+    };
+    const addRect = (raw, flags = {}) => {
+      if (!raw || typeof raw !== 'object') return;
+      let id = String(raw.id ?? raw._id ?? '').trim();
+      if (!id) {
+        id = `r-${(anonCounter++).toString(36).padStart(5, '0')}`;
+      }
+      const xPx = getNumber(raw.x, getNumber(raw.left, 0));
+      const yPx = getNumber(raw.y, getNumber(raw.top, 0));
+      const wPx = Math.max(1, getNumber(raw.w, getNumber(raw.width, 0)));
+      const hPx = Math.max(1, getNumber(raw.h, getNumber(raw.height, 0)));
+      const prev = rectMap.get(id);
+      const base = prev || {
+        id,
+        name: '',
+        x: W ? xPx / W : 0,
+        y: H ? yPx / H : 0,
+        w: W ? wPx / W : 0,
+        h: H ? hPx / H : 0,
+        seps: [],
+        extract_text: false,
+        reference: false,
+        noise: false,
+      };
+      base.name = (raw.name ?? base.name ?? '') || '';
+      base.x = W ? xPx / Math.max(W, 1) : base.x;
+      base.y = H ? yPx / Math.max(H, 1) : base.y;
+      base.w = W ? wPx / Math.max(W, 1) : base.w;
+      base.h = H ? hPx / Math.max(H, 1) : base.h;
+      if (Array.isArray(raw.seps) && raw.seps.length) {
+        const rectHeight = Math.max(hPx, 1);
+        base.seps = raw.seps.map((s) => {
+          const abs = getNumber(s, 0);
+          const frac = rectHeight ? abs / rectHeight : 0;
+          return Math.max(0, Math.min(1, frac));
+        });
+      }
+      if (flags.extract_text) base.extract_text = true;
+      if (flags.reference) base.reference = true;
+      if (flags.noise) base.noise = true;
+      rectMap.set(id, base);
+    };
+
+    fallbackRects.forEach((r) => addRect(r, { extract_text: r && r.extract_text !== false }));
+    extractList.forEach((r) => addRect(r, { extract_text: true }));
+    referenceList.forEach((r) => addRect(r, { reference: true }));
+    noiseList.forEach((r) => addRect(r, { noise: true }));
+
+    state.rects = Array.from(rectMap.values());
     titleInp.value = doc.name || 'Untitled API';
     updateEndpoint(doc);
     if (!state._hasInteracted) {
