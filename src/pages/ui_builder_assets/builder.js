@@ -12,6 +12,7 @@ async () => {
     dirty: false,
     loaded: false,
     deleting: false,
+    _preCreateSnapshot: null,
   };
 
   // Elements
@@ -1056,9 +1057,57 @@ function renderSepsInspector(r){
       if (confirm('You have unsaved changes. Save before creating a new API?')) { const ok = await doSave(); if (!ok) return; }
       else { markDirty(false); }
     }
+    state._preCreateSnapshot = {
+      selected: state.selected,
+      rects: cloneRects(),
+      imgSrc: img ? img.currentSrc || img.src || '' : '',
+      naturalW: state.img.naturalW,
+      naturalH: state.img.naturalH,
+      title: titleInp ? titleInp.value : '',
+    };
+    clearSelection({ skipRender: true });
+    state.rects = [];
+    renderRects();
+    if (stage) stage.style.display = 'none';
+    if (img) {
+      img.removeAttribute('src');
+    }
+    state.img.naturalW = 0;
+    state.img.naturalH = 0;
+    if (hint) hint.style.display = 'none';
+    if (titleInp) titleInp.value = '';
+    updateEndpoint(null);
+    markDirty(false);
     showCreate();
   };
-  btnCancelCreate.onclick = () => { hideCreate(); };
+  btnCancelCreate.onclick = () => {
+    hideCreate();
+    const snap = state._preCreateSnapshot;
+    if (snap) {
+      state.selected = snap.selected;
+      state.rects = Array.isArray(snap.rects) ? JSON.parse(JSON.stringify(snap.rects)) : [];
+      state.img.naturalW = snap.naturalW || 0;
+      state.img.naturalH = snap.naturalH || 0;
+      if (img) {
+        if (snap.imgSrc) {
+          img.src = snap.imgSrc;
+          if (stage) stage.style.display = 'block';
+        } else {
+          img.removeAttribute('src');
+          if (stage) stage.style.display = 'none';
+        }
+      }
+      if (titleInp) titleInp.value = snap.title || '';
+      const doc = state.apis.find(a => a.id === state.selected) || null;
+      updateEndpoint(doc);
+      if (hint) hint.style.display = state.selected ? 'none' : 'block';
+      selectRect('');
+      markDirty(false);
+      state._preCreateSnapshot = null;
+    } else if (!state.selected && hint) {
+      hint.style.display = 'block';
+    }
+  };
   btnCreateFromUpload.onclick = async () => {
     const inp = apiImageInput();
     if (!inp || !inp.files || !inp.files[0]) { alert('Please choose an image'); return; }
@@ -1101,6 +1150,7 @@ function renderSepsInspector(r){
       titleInp.value = doc.name || titleInp.value || 'New API';
       updateEndpoint(doc);
       hideCreate();
+      state._preCreateSnapshot = null;
       // If user has drawn rectangles meanwhile, persist immediately
       if (state.rects && state.rects.length) { await doSave(); }
       markDirty(false);
