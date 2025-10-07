@@ -33,6 +33,8 @@ async () => {
   const selPanel = document.getElementById('selection-panel');
   const rectName = document.getElementById('rect-name');
   const rectExtract = document.getElementById('rect-extract');
+  const rectReference = document.getElementById('rect-reference');
+  const rectNoise = document.getElementById('rect-noise');
   const rectX = document.getElementById('rect-x');
   const rectY = document.getElementById('rect-y');
   const rectW = document.getElementById('rect-w');
@@ -222,7 +224,8 @@ async () => {
       // Convert rects to pixel units before sending
       const W = state.img.naturalW, H = state.img.naturalH;
       const pixelRects = (state.rects || []).map(r => ({
-        ...r,
+        id: r.id,
+        name: r.name || '',
         x: Math.round(r.x * W),
         y: Math.round(r.y * H),
         w: Math.round(r.w * W),
@@ -230,9 +233,20 @@ async () => {
         seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * r.h * H)) : [],
         extract_text: !!r.extract_text
       }));
+      const references = [];
+      const noise = [];
+      for (const rect of state.rects || []) {
+        if (rect.reference) references.push(rect.id);
+        if (rect.noise) noise.push(rect.id);
+      }
       const r = await fetch(`/builder/apis/${state.selected}`,{
         method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ name: titleInp.value || 'Untitled API', rects: pixelRects })
+        body: JSON.stringify({
+          name: titleInp.value || 'Untitled API',
+          rects: pixelRects,
+          references,
+          noise
+        })
       });
       if (!r.ok) throw new Error('save');
       const doc = await r.json();
@@ -427,6 +441,8 @@ async () => {
     selPanel.style.display = 'none';
     rectName.value = '';
     rectExtract.checked = true;
+    if (rectReference) rectReference.checked = false;
+    if (rectNoise) rectNoise.checked = false;
     for (const el of overlay.querySelectorAll('.rect')) el.classList.remove('selected');
     overlay.dataset.selected = '';
     keyNudgeActive = false;
@@ -442,6 +458,8 @@ async () => {
       selPanel.style.display = 'block';
       rectName.value = r.name || '';
       rectExtract.checked = !!r.extract_text;
+      if (rectReference) rectReference.checked = !!r.reference;
+      if (rectNoise) rectNoise.checked = !!r.noise;
       setInspectorOpen(true);
       rectX.value = Math.round(r.x * state.img.naturalW);
       rectY.value = Math.round(r.y * state.img.naturalH);
@@ -481,7 +499,12 @@ function renderRects() {
   layoutOverlay();
   for (const r of state.rects) {
       const el = document.createElement('div');
-      el.className = 'rect' + (overlay.dataset.selected === r.id ? ' selected' : '');
+      const classes = ['rect'];
+      if (overlay.dataset.selected === r.id) classes.push('selected');
+      if (r.extract_text !== false) classes.push('rect-info');
+      if (r.reference) classes.push('rect-reference');
+      if (r.noise) classes.push('rect-noise');
+      el.className = classes.join(' ');
       el.dataset.id = r.id;
       el.style.left = (r.x * state.img.naturalW) + 'px';
       el.style.top  = (r.y * state.img.naturalH) + 'px';
@@ -575,6 +598,8 @@ function renderSepsInspector(r){
     state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
     // Convert pixel rects to normalized rects for display
     const W = state.img.naturalW, H = state.img.naturalH;
+    const referenceIds = new Set(Array.isArray(doc.references) ? doc.references : []);
+    const noiseIds = new Set(Array.isArray(doc.noise) ? doc.noise : []);
     state.rects = Array.isArray(doc.rects) ? doc.rects.map(r => ({
       ...r,
       x: r.x / W,
@@ -582,7 +607,9 @@ function renderSepsInspector(r){
       w: r.w / W,
       h: r.h / H,
       seps: Array.isArray(r.seps) ? r.seps.map(s => (r.h ? s / r.h : 0) / H) : [],
-      extract_text: r.extract_text !== false       // default TRUE ✅
+      extract_text: r.extract_text !== false,      // default TRUE ✅
+      reference: referenceIds.has(r.id),
+      noise: noiseIds.has(r.id)
       })) : [];
     titleInp.value = doc.name || 'Untitled API';
     updateEndpoint(doc);
@@ -858,7 +885,7 @@ function renderSepsInspector(r){
       if (w > 0.002 && h > 0.002) {
         try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
         const id = 'r-' + Math.random().toString(36).slice(2, 9);
-      const rect = { id, name: '', x, y, w, h, extract_text: true };
+        const rect = { id, name: '', x, y, w, h, extract_text: true, reference: false, noise: false };
         state.rects.push(rect);
         selectRect(id);
         markDirty(true);
@@ -906,8 +933,24 @@ function renderSepsInspector(r){
     try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
     const id = overlay.dataset.selected || '';
     const r = state.rects.find(x => x.id === id);
-    if (!r) return; r.extract_text = !!rectExtract.checked; markDirty(true);
+    if (!r) return; r.extract_text = !!rectExtract.checked; renderRects(); markDirty(true);
   };
+  if (rectReference) {
+    rectReference.onchange = () => {
+      try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+      const id = overlay.dataset.selected || '';
+      const r = state.rects.find(x => x.id === id);
+      if (!r) return; r.reference = !!rectReference.checked; renderRects(); markDirty(true);
+    };
+  }
+  if (rectNoise) {
+    rectNoise.onchange = () => {
+      try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+      const id = overlay.dataset.selected || '';
+      const r = state.rects.find(x => x.id === id);
+      if (!r) return; r.noise = !!rectNoise.checked; renderRects(); markDirty(true);
+    };
+  }
   
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
   function applyRectEdits(){

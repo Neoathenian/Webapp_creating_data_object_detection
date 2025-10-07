@@ -4,7 +4,7 @@ import json
 import os
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi import Request
@@ -88,6 +88,8 @@ class ApiMeta(BaseModel):
     image_blob: str  # gs blob where the image is stored
     image_url: Optional[str] = None  # computed on read
     rects: List[Rect] = Field(default_factory=list)
+    references: List[str] = Field(default_factory=list)
+    noise: List[str] = Field(default_factory=list)
 
 
 def _load_api(uid: str, api_id: str) -> Dict[str, Any]:
@@ -95,6 +97,10 @@ def _load_api(uid: str, api_id: str) -> Dict[str, Any]:
     if not found:
         raise HTTPException(status_code=404, detail="API not found")
     doc, _ = found
+    if not isinstance(doc.get("references"), list):
+        doc["references"] = []
+    if not isinstance(doc.get("noise"), list):
+        doc["noise"] = []
     return doc
 
 
@@ -124,6 +130,10 @@ def list_apis(request: Request):
     items = _list_user_apis(uid)
     # Attach image_url and strip heavy fields for list view
     for it in items:
+        if not isinstance(it.get("references"), list):
+            it["references"] = []
+        if not isinstance(it.get("noise"), list):
+            it["noise"] = []
         # Prefer signed URL for faster direct load
         url = None
         try:
@@ -176,6 +186,8 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
         "updated_at": now,
         "image_blob": img_blob,
         "rects": [],
+        "references": [],
+        "noise": [],
     }
     _save_api(doc)
 
@@ -211,6 +223,8 @@ def get_api(api_id: str, request: Request):
 class ApiUpdate(BaseModel):
     name: Optional[str] = None
     rects: Optional[List[Rect]] = None
+    references: Optional[List[str]] = None
+    noise: Optional[List[str]] = None
 
 
 @router.put("/apis/{api_id}")
@@ -224,6 +238,7 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     changed = False
+    valid_rect_ids: Optional[Set[str]] = None
     if upd.name is not None:
         new_name = (upd.name or "").strip() or doc.get("name") or ""
         if not new_name:
@@ -274,6 +289,42 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
             d["seps"] = [int(round(s)) for s in d.get("seps", [])]
             pixel_rects.append(d)
         doc["rects"] = pixel_rects
+        valid_rect_ids = {str(d.get("id")) for d in pixel_rects if d.get("id")}
+        changed = True
+    else:
+        existing_rects = doc.get("rects") or []
+        if isinstance(existing_rects, list):
+            valid_rect_ids = {
+                str(r.get("id"))
+                for r in existing_rects
+                if isinstance(r, dict) and r.get("id")
+            }
+        else:
+            valid_rect_ids = set()
+
+    def sanitize_group(values: Optional[List[str]]) -> List[str]:
+        seen: Set[str] = set()
+        cleaned: List[str] = []
+        if not values:
+            return []
+        for raw in values:
+            if raw is None:
+                continue
+            rid = str(raw)
+            if rid in seen:
+                continue
+            if valid_rect_ids and rid not in valid_rect_ids:
+                continue
+            seen.add(rid)
+            cleaned.append(rid)
+        return cleaned
+
+    if upd.references is not None:
+        doc["references"] = sanitize_group(upd.references)
+        changed = True
+
+    if upd.noise is not None:
+        doc["noise"] = sanitize_group(upd.noise)
         changed = True
 
     if changed:

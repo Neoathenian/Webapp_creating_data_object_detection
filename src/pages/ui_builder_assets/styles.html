@@ -110,9 +110,55 @@ button.toggle-python { display:inline-flex; align-items:center; gap:8px; padding
   .stage img { display:block; max-width: none; }
   /* overlay must receive pointer events for drawing */
   .overlay { position: absolute; left: 0; top: 0; pointer-events: auto; }
-  .rect { position: absolute; border: 2px solid #2563eb; background: rgba(37,99,235,0.05); box-sizing: border-box; pointer-events: auto; border-radius: 2px; }
-  .rect.selected { border-color: #ef4444; background: rgba(239,68,68,0.06); }
-  .rect .sep-line { position:absolute; left:0; right:0; height:0; border-top:2px dashed rgba(37,99,235,0.8); cursor: row-resize; }
+  .rect {
+    position: absolute;
+    border: 2px solid rgba(148,163,184,0.6);
+    background: rgba(148,163,184,0.14);
+    box-sizing: border-box;
+    pointer-events: auto;
+    border-radius: 3px;
+    transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
+    backdrop-filter: none;
+  }
+  .rect-info {
+    border-color: #2563eb;
+    background: rgba(37,99,235,0.1);
+    box-shadow: 0 0 0 1px rgba(37,99,235,0.25);
+  }
+  .rect-reference {
+    border-color: #d97706;
+    background: rgba(234,179,8,0.18);
+    box-shadow: 0 0 0 1.5px rgba(217,119,6,0.45), 0 0 0 4px rgba(251,191,36,0.22);
+  }
+  .rect-info.rect-reference {
+    background: linear-gradient(140deg, rgba(251,191,36,0.2), rgba(37,99,235,0.13));
+    border-color: #d97706;
+    box-shadow: 0 0 0 2px rgba(217,119,6,0.45), 0 0 0 5px rgba(37,99,235,0.18);
+  }
+  .rect-noise {
+    border-color: #6b7280;
+    background: rgba(107,114,128,0.22);
+    backdrop-filter: blur(1.4px);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+  }
+  .rect-info.rect-noise {
+    border-color: #4f46e5;
+    background: linear-gradient(140deg, rgba(37,99,235,0.12), rgba(107,114,128,0.24));
+  }
+  .rect-reference.rect-noise {
+    border-color: #b45309;
+    background: linear-gradient(140deg, rgba(234,179,8,0.22), rgba(107,114,128,0.22));
+  }
+  .rect-info.rect-reference.rect-noise {
+    border-color: #9a3412;
+    background: linear-gradient(140deg, rgba(251,191,36,0.22), rgba(37,99,235,0.12), rgba(107,114,128,0.24));
+  }
+  .rect.selected {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 2px rgba(239,68,68,0.65), 0 0 0 5px rgba(239,68,68,0.18);
+    background: rgba(239,68,68,0.08);
+  }
+  .rect .sep-line { position:absolute; left:0; right:0; height:0; border-top:2px dashed rgba(37,99,235,0.7); cursor: row-resize; }
   .rect .sep-line:hover { border-top-color:#1d4ed8; }
   /* When subdividing, hide resize handles so clicks create lines */
   #overlay.mode-split .handle { display:none !important; pointer-events:none !important; }
