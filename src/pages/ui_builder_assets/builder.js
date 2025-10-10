@@ -382,6 +382,58 @@ async () => {
 
   function percentClamp(v) { return Math.max(0, Math.min(1, v)); }
 
+  // Track overlapping rectangle hit-testing so repeated clicks can cycle targets.
+  const HIT_CYCLE_PRECISION = 1000;
+  const hitCycle = { key: '', idx: 0 };
+
+  function resetHitCycle() {
+    hitCycle.key = '';
+    hitCycle.idx = 0;
+  }
+
+  function hitTestRectsAt(gx, gy) {
+    const rects = Array.isArray(state.rects) ? state.rects : [];
+    const hits = [];
+    rects.forEach((rect, idx) => {
+      if (!rect) return;
+      const withinX = gx >= rect.x && gx <= rect.x + rect.w;
+      const withinY = gy >= rect.y && gy <= rect.y + rect.h;
+      if (withinX && withinY) {
+        const area = Math.max(0, rect.w * rect.h);
+        hits.push({ rect, idx, area });
+      }
+    });
+    hits.sort((a, b) => {
+      if (a.area !== b.area) return a.area - b.area;
+      return a.idx - b.idx;
+    });
+    return hits;
+  }
+
+  function buildHitKey(hits, gx, gy) {
+    const ids = hits.map(h => h.rect.id || '').join('|');
+    const posX = Math.round(gx * HIT_CYCLE_PRECISION);
+    const posY = Math.round(gy * HIT_CYCLE_PRECISION);
+    return `${ids}@${posX},${posY}`;
+  }
+
+  function pickRectFromHits(hits, gx, gy, { advance = true, remember = true } = {}) {
+    if (!hits.length) {
+      if (remember) resetHitCycle();
+      return null;
+    }
+    if (!remember) return hits[0].rect;
+    const key = buildHitKey(hits, gx, gy);
+    if (hitCycle.key !== key) {
+      hitCycle.key = key;
+      hitCycle.idx = 0;
+    } else if (advance) {
+      hitCycle.idx = (hitCycle.idx + 1) % hits.length;
+    }
+    const current = hits[hitCycle.idx % hits.length];
+    return current ? current.rect : hits[0].rect;
+  }
+
   function nudgeSelectedRect(rect, dx, dy, { preview = false } = {}) {
     if (!rect) return false;
     const W = state.img.naturalW;
@@ -521,7 +573,23 @@ function renderRects() {
       el.style.top  = (r.y * state.img.naturalH) + 'px';
       el.style.width  = (r.w * state.img.naturalW) + 'px';
       el.style.height = (r.h * state.img.naturalH) + 'px';
-      el.onclick = (ev) => { ev.stopPropagation(); /* keep current mode */ selectRect(r.id); };
+      el.onclick = (ev) => {
+        ev.stopPropagation();
+        if (state.mode === 'select') return;
+        if (!state.img.naturalW || !state.img.naturalH) {
+          selectRect(r.id);
+          return;
+        }
+        const box = img.getBoundingClientRect();
+        const px = ev.clientX - box.left;
+        const py = ev.clientY - box.top;
+        const gx = percentClamp(px / Math.max(1, state.img.naturalW * state.zoom));
+        const gy = percentClamp(py / Math.max(1, state.img.naturalH * state.zoom));
+        const hits = hitTestRectsAt(gx, gy);
+        const picked = pickRectFromHits(hits, gx, gy);
+        const target = picked || r;
+        selectRect(target.id);
+      };
       // Render horizontal separators
       const seps = Array.isArray(r.seps) ? r.seps : [];
       for (let i=0;i<seps.length;i++){
@@ -812,12 +880,20 @@ function renderSepsInspector(r){
   });
   // Double-click on a rectangle to start moving it (even in draw mode)
   overlay.addEventListener('dblclick', (ev) => {
-    const rectEl = ev.target.closest && ev.target.closest('.rect'); if (!rectEl) return;
-    const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
     const box = img.getBoundingClientRect();
-    const px = ev.clientX - box.left; const py = ev.clientY - box.top;
-    const gx = percentClamp(px / (state.img.naturalW * state.zoom));
-    const gy = percentClamp(py / (state.img.naturalH * state.zoom));
+    const px = ev.clientX - box.left;
+    const py = ev.clientY - box.top;
+    const denomX = Math.max(1, state.img.naturalW * state.zoom);
+    const denomY = Math.max(1, state.img.naturalH * state.zoom);
+    const gx = percentClamp(px / denomX);
+    const gy = percentClamp(py / denomY);
+    const hits = hitTestRectsAt(gx, gy);
+    const picked = pickRectFromHits(hits, gx, gy, { advance: false });
+    const fallbackEl = ev.target.closest && ev.target.closest('.rect');
+    const fallback = fallbackEl ? state.rects.find(x => x.id === fallbackEl.dataset.id) : null;
+    const r = picked || fallback;
+    if (!r) return;
+    const id = r.id;
     history.undo.push(cloneRects()); history.redo.length = 0;
     selectRect(id);
     moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
@@ -825,17 +901,40 @@ function renderSepsInspector(r){
   });
   overlay.addEventListener('mousedown', (ev) => {
     const box = img.getBoundingClientRect();
-    const px = ev.clientX - box.left; const py = ev.clientY - box.top;
-    const gx = percentClamp(px / (state.img.naturalW * state.zoom));
-    const gy = percentClamp(py / (state.img.naturalH * state.zoom));
-    // Resize handle?
+    const px = ev.clientX - box.left;
+    const py = ev.clientY - box.top;
+    const denomX = Math.max(1, state.img.naturalW * state.zoom);
+    const denomY = Math.max(1, state.img.naturalH * state.zoom);
+    const gx = percentClamp(px / denomX);
+    const gy = percentClamp(py / denomY);
+    const hits = hitTestRectsAt(gx, gy);
     const h = ev.target.closest ? ev.target.closest('.handle') : null;
     const sep = ev.target.closest ? ev.target.closest('.sep-line') : null;
-    const rectEl = ev.target.classList && ev.target.classList.contains('rect') ? ev.target : (h ? h.parentElement : (sep ? sep.parentElement : null));
-    if (state.mode === 'split' && rectEl && !h) {
+    let rectEl = ev.target.classList && ev.target.classList.contains('rect')
+      ? ev.target
+      : (h ? h.parentElement : (sep ? sep.parentElement : null));
+    let rectData = rectEl ? state.rects.find(x => x.id === rectEl.dataset.id) : null;
+    if (!h && !sep) {
+      if (state.mode === 'select' || state.mode === 'split') {
+        const picked = pickRectFromHits(hits, gx, gy);
+        if (picked) {
+          rectData = picked;
+          const el = overlay.querySelector(`.rect[data-id="${picked.id}"]`);
+          if (el) rectEl = el;
+        } else {
+          rectData = null;
+          rectEl = null;
+        }
+      } else if (!hits.length) {
+        resetHitCycle();
+      }
+    } else if (!hits.length) {
+      resetHitCycle();
+    }
+    if (state.mode === 'split' && rectData && !h) {
       try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
-      const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
-      // Ensure this rect is selected and inspector is open
+      const r = rectData;
+      const id = r.id;
       if ((overlay.dataset.selected || '') !== id) {
         selectRect(id);
       }
@@ -847,15 +946,17 @@ function renderSepsInspector(r){
       markDirty(true);
       ev.preventDefault(); ev.stopPropagation(); return;
     }
-    if (h && rectEl) {
+    if (h && rectData) {
       try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
-      const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
+      const r = rectData;
+      const id = r.id;
       resizing = { id, pos: h.dataset.pos, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
       ev.preventDefault(); ev.stopPropagation(); return;
     }
-    if (state.mode === 'select' && rectEl) {
+    if (state.mode === 'select' && rectData) {
       try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
-      const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
+      const r = rectData;
+      const id = r.id;
       selectRect(id);
       moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
       ev.preventDefault(); ev.stopPropagation(); return;
@@ -976,15 +1077,26 @@ function renderSepsInspector(r){
   overlay.addEventListener('click', (ev) => {
     if (state.mode === 'draw') return; // drawing handles its own
     const rectEl = ev.target.closest && ev.target.closest('.rect');
-    if (ev.shiftKey && rectEl) {
-      const id = rectEl.dataset.id; const r = state.rects.find(x=>x.id===id); if(!r) return;
-      const box = rectEl.getBoundingClientRect();
-      const rel = Math.max(0, Math.min(1, (ev.clientY - box.top) / Math.max(1, box.height)));
+    if (ev.shiftKey) {
+      if (!state.img.naturalW || !state.img.naturalH) return;
+      const box = img.getBoundingClientRect();
+      const px = ev.clientX - box.left;
+      const py = ev.clientY - box.top;
+      const denomX = Math.max(1, state.img.naturalW * state.zoom);
+      const denomY = Math.max(1, state.img.naturalH * state.zoom);
+      const gx = percentClamp(px / denomX);
+      const gy = percentClamp(py / denomY);
+      const hits = hitTestRectsAt(gx, gy);
+      const picked = pickRectFromHits(hits, gx, gy, { advance: false });
+      const fallback = rectEl ? state.rects.find(x => x.id === rectEl.dataset.id) : null;
+      const r = picked || fallback;
+      if (!r) return;
+      const rel = Math.max(0, Math.min(1, (gy - r.y) / Math.max(0.0001, r.h)));
       if (!Array.isArray(r.seps)) r.seps = [];
       r.seps.push(rel); r.seps.sort((a,b)=>a-b);
       renderRects(); try { renderSepsInspector(r); } catch {} markDirty(true); ev.preventDefault(); return;
     }
-    if (ev.target === overlay) selectRect('');
+    if (ev.target === overlay) { resetHitCycle(); selectRect(''); }
   });
 
   rectName.oninput = () => {
