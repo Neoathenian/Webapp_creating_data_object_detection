@@ -70,6 +70,7 @@ async () => {
   const modeSplit = document.getElementById('mode-split');
   const selPanel = document.getElementById('selection-panel');
   const rectName = document.getElementById('rect-name');
+  const rectNameSelect = document.getElementById('rect-name-select');
   const rectExtract = document.getElementById('rect-extract');
   const rectReference = document.getElementById('rect-reference');
   const rectNoise = document.getElementById('rect-noise');
@@ -122,6 +123,15 @@ async () => {
   if (createPrompt && config.uploadPrompt) createPrompt.textContent = config.uploadPrompt;
   if (hint && config.emptyHint) hint.textContent = config.emptyHint;
   if (integrationPanel && config.showIntegration === false) integrationPanel.classList.add('hidden');
+  if (rectName && rectNameSelect) {
+    if (config.enableCollectorControls) {
+      rectName.style.display = 'none';
+      rectNameSelect.style.display = '';
+    } else {
+      rectName.style.display = '';
+      rectNameSelect.style.display = 'none';
+    }
+  }
 
   function syncBaseAccess(doc) {
     if (!doc) return;
@@ -304,6 +314,75 @@ async () => {
     return state.templates.find((item) => String(item.id) === id) || null;
   }
 
+  function templateRectangleNamePool() {
+    const template = selectedTemplateDoc();
+    if (!template || typeof template !== 'object') return [];
+    const source = [
+      ...(Array.isArray(template.extract_text) ? template.extract_text : []),
+      ...(Array.isArray(template.references) ? template.references : []),
+      ...(Array.isArray(template.noise) ? template.noise : []),
+      ...(Array.isArray(template.rects) ? template.rects : []),
+    ];
+    const seen = new Set();
+    const names = [];
+    for (const rect of source) {
+      if (!rect || typeof rect !== 'object') continue;
+      const name = String(rect.name || '').trim();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+    return names;
+  }
+
+  function refreshRectNameControl(selectedRectId = '') {
+    if (!rectNameSelect || !rectName) return;
+    if (!config.enableCollectorControls) {
+      rectName.style.display = '';
+      rectNameSelect.style.display = 'none';
+      return;
+    }
+
+    rectName.style.display = 'none';
+    rectNameSelect.style.display = '';
+
+    const selectedRect = (state.rects || []).find((item) => item && item.id === selectedRectId) || null;
+    const currentName = String((selectedRect && selectedRect.name) || '').trim();
+    const assignedNames = new Set();
+    for (const rect of state.rects || []) {
+      if (!rect || rect.id === selectedRectId) continue;
+      const name = String(rect.name || '').trim();
+      if (name) assignedNames.add(name);
+    }
+
+    const values = [];
+    if (currentName) values.push(currentName);
+    for (const name of templateRectangleNamePool()) {
+      if (assignedNames.has(name)) continue;
+      if (!values.includes(name)) values.push(name);
+    }
+
+    rectNameSelect.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select name';
+    rectNameSelect.appendChild(placeholder);
+    for (const name of values) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      rectNameSelect.appendChild(option);
+    }
+    rectNameSelect.value = currentName;
+  }
+
+  function currentRectNameInputValue() {
+    if (config.enableCollectorControls && rectNameSelect) {
+      return String(rectNameSelect.value || '').trim();
+    }
+    return String((rectName && rectName.value) || '').trim();
+  }
+
   function setCollectorActionState() {
     if (!config.enableCollectorControls) return;
     const hasTemplate = !!selectedTemplateId();
@@ -347,6 +426,33 @@ async () => {
       if (idx >= 0) state.apis.splice(idx, 1, doc);
       else state.apis.unshift(doc);
     }
+    sortApisForList();
+  }
+
+  function stableListString(value) {
+    return String(value || '').trim().toLocaleLowerCase();
+  }
+
+  function sortApisForList() {
+    if (!Array.isArray(state.apis) || state.apis.length < 2) return;
+    if (!config.enableCollectorControls) return;
+    state.apis.sort((a, b) => {
+      const aPending = !!(a && a.pending);
+      const bPending = !!(b && b.pending);
+      if (aPending !== bPending) return aPending ? -1 : 1;
+
+      const aName = stableListString((a && (a._pendingName || a.name || a.original_filename)));
+      const bName = stableListString((b && (b._pendingName || b.name || b.original_filename)));
+      const byName = aName.localeCompare(bName);
+      if (byName !== 0) return byName;
+
+      const aCreated = stableListString(a && a.created_at);
+      const bCreated = stableListString(b && b.created_at);
+      const byCreated = aCreated.localeCompare(bCreated);
+      if (byCreated !== 0) return byCreated;
+
+      return stableListString(a && a.id).localeCompare(stableListString(b && b.id));
+    });
   }
 
   function extractApiDocs(payload) {
@@ -484,6 +590,7 @@ async () => {
     updateTemplateButton();
     setCollectorStatus('');
     setCollectorActionState();
+    refreshRectNameControl(overlay.dataset.selected || '');
   }
 
   async function fetchTemplates() {
@@ -939,6 +1046,7 @@ async () => {
   }
 
   function renderList() {
+    sortApisForList();
     listEl.innerHTML = '';
     for (const it of state.apis) {
       const li = document.createElement('li');
@@ -975,6 +1083,7 @@ async () => {
       const j = await r.json();
       state.apis = Array.isArray(j) ? j : [];
       state.apis.forEach(syncBaseAccess);
+      sortApisForList();
       state.loaded = true;
     } catch { state.apis = []; state.loaded = true; }
     if (state.selected && !state.apis.find(a=>a.id===state.selected)) state.selected = null;
@@ -995,12 +1104,14 @@ async () => {
   function clearSelection({ skipRender = false } = {}) {
     selPanel.style.display = 'none';
     rectName.value = '';
+    if (rectNameSelect) rectNameSelect.value = '';
     rectExtract.checked = true;
     if (rectReference) rectReference.checked = false;
     if (rectNoise) rectNoise.checked = false;
     for (const el of overlay.querySelectorAll('.rect')) el.classList.remove('selected');
     overlay.dataset.selected = '';
     keyNudgeActive = false;
+    refreshRectNameControl('');
     setInspectorOpen(false);
     if (!skipRender) renderRects();
   }
@@ -1008,10 +1119,12 @@ async () => {
   function selectRect(id) {
     overlay.dataset.selected = id || '';
     keyNudgeActive = false;
+    refreshRectNameControl(id || '');
     const r = state.rects.find(x => x.id === id);
     if (r) {
       selPanel.style.display = 'block';
       rectName.value = r.name || '';
+      if (rectNameSelect) rectNameSelect.value = r.name || '';
       rectExtract.checked = !!r.extract_text;
       if (rectReference) rectReference.checked = !!r.reference;
       if (rectNoise) rectNoise.checked = !!r.noise;
@@ -1598,12 +1711,17 @@ function renderSepsInspector(r){
     if (ev.target === overlay) { resetHitCycle(); selectRect(''); }
   });
 
-  rectName.oninput = () => {
+  function applyRectNameEdit() {
     try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
     const id = overlay.dataset.selected || '';
     const r = state.rects.find(x => x.id === id);
-    if (!r) return; r.name = rectName.value || ''; markDirty(true);
-  };
+    if (!r) return;
+    r.name = currentRectNameInputValue();
+    refreshRectNameControl(id);
+    markDirty(true);
+  }
+  if (rectName) rectName.oninput = applyRectNameEdit;
+  if (rectNameSelect) rectNameSelect.onchange = applyRectNameEdit;
   rectExtract.onchange = () => {
     try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
     const id = overlay.dataset.selected || '';
