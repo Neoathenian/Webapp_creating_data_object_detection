@@ -86,6 +86,8 @@ async () => {
   const btnUndo = document.getElementById('btn-undo');
   const btnRedo = document.getElementById('btn-redo');
   const btnDelete = document.getElementById('btn-delete-api');
+  const btnPrevImage = document.getElementById('btn-prev-image');
+  const btnNextImage = document.getElementById('btn-next-image');
   const btnGenerateRects = document.getElementById('btn-generate-rects');
   const btnEvaluateAll = document.getElementById('btn-evaluate-all');
   const evaluateAllPopup = document.getElementById('evaluate-all-popup');
@@ -304,10 +306,36 @@ async () => {
   function setCollectorActionState() {
     if (!config.enableCollectorControls) return;
     const hasTemplate = !!selectedTemplateId();
+    const navigable = (state.apis || []).filter((item) => item && !item.pending && item.id);
+    const currentIndex = navigable.findIndex((item) => item.id === state.selected);
     if (btnNew) btnNew.disabled = !hasTemplate;
     if (btnGenerateRects) btnGenerateRects.disabled = !hasTemplate || !state.selected || state.evaluating || String(state.selected).startsWith('pending-');
     if (btnEvaluateAll) btnEvaluateAll.disabled = !hasTemplate || state.evaluating || !state.apis.some((item) => item && !item.pending && item.id);
+    if (btnPrevImage) btnPrevImage.disabled = state.evaluating || currentIndex <= 0;
+    if (btnNextImage) btnNextImage.disabled = state.evaluating || currentIndex < 0 || currentIndex >= navigable.length - 1;
     if (collectorTemplateButton) collectorTemplateButton.disabled = !state.templates.length;
+  }
+
+  async function navigateSelectedImage(step) {
+    if (!config.enableCollectorControls) return;
+    const direction = Number(step) < 0 ? -1 : 1;
+    const navigable = (state.apis || []).filter((item) => item && !item.pending && item.id);
+    if (!navigable.length) return;
+    const currentIndex = navigable.findIndex((item) => item.id === state.selected);
+    if (currentIndex < 0) return;
+    const targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= navigable.length) return;
+
+    if (state.dirty) {
+      if (confirm('You have unsaved changes. Save before switching?')) {
+        const ok = await doSave();
+        if (!ok) return;
+      } else {
+        markDirty(false);
+      }
+    }
+
+    await loadApi(navigable[targetIndex].id);
   }
 
   function upsertApiDocs(docs) {
@@ -685,6 +713,8 @@ async () => {
   if (btnUndo) btnUndo.onclick = () => undo();
   if (btnRedo) btnRedo.onclick = () => redo();
   if (btnDelete) btnDelete.onclick = () => { deleteSelectedApi(); };
+  if (btnPrevImage) btnPrevImage.onclick = async () => { await navigateSelectedImage(-1); };
+  if (btnNextImage) btnNextImage.onclick = async () => { await navigateSelectedImage(1); };
   if (btnGenerateRects) btnGenerateRects.onclick = () => { evaluateCurrentItem(); };
   if (btnEvaluateAll) btnEvaluateAll.onclick = () => { openEvaluateAllPopup(); };
   if (btnEvaluateAllCancel) btnEvaluateAllCancel.onclick = () => { closeEvaluateAllPopup(); };
