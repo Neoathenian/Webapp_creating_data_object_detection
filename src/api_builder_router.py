@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Union
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi import Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.login_logic import get_user
 from src.gcs_storage import (
@@ -64,6 +64,8 @@ def _random_name(n: int = 10) -> str:
 
 
 class Rect(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     name: str = ""
     x: float = Field(ge=0, le=1)
@@ -71,6 +73,7 @@ class Rect(BaseModel):
     y: int = Field(ge=0)
     w: int = Field(ge=1)
     h: int = Field(ge=1)
+    theta: float = Field(default=0.0, alias="θ")
     # Horizontal separators inside the rectangle (pixels from top)
     seps: List[int] = Field(default_factory=list)
 
@@ -125,6 +128,19 @@ def _clean_rect(rect: Dict[str, Any]) -> Dict[str, Any]:
     data["h"] = h_int
     data["width"] = w_int
     data["height"] = h_int
+    theta_val = data.get("θ", data.get("theta", 0))
+    try:
+        theta_num = float(theta_val)
+    except (TypeError, ValueError):
+        theta_num = 0.0
+    if not theta_num == theta_num:  # NaN guard
+        theta_num = 0.0
+    while theta_num > 180.0:
+        theta_num -= 360.0
+    while theta_num <= -180.0:
+        theta_num += 360.0
+    data["θ"] = float(theta_num)
+    data.pop("theta", None)
     seps = []
     for s in data.get("seps", []):
         try:

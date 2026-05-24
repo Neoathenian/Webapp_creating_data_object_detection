@@ -77,6 +77,7 @@ async () => {
   const rectY = document.getElementById('rect-y');
   const rectW = document.getElementById('rect-w');
   const rectH = document.getElementById('rect-h');
+  const rectTheta = document.getElementById('rect-theta');
   const btnDelRect = document.getElementById('btn-delete-rect');
   const inspector = document.getElementById('inspector');
   const center = document.getElementById('center');
@@ -662,6 +663,7 @@ async () => {
           y: Math.round(r.y * H),
           w: Math.round(r.w * W),
           h: Math.round(r.h * H),
+          'θ': rectThetaDeg(r),
           seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * Math.max(r.h * H, 1))) : [],
         };
         rectLookup.set(px.id, px);
@@ -844,6 +846,12 @@ async () => {
 
   function percentClamp(v) { return Math.max(0, Math.min(1, v)); }
 
+  function rectThetaDeg(rect) {
+    const raw = rect ? (rect['θ'] ?? rect.theta ?? 0) : 0;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : 0;
+  }
+
   // Track overlapping rectangle hit-testing so repeated clicks can cycle targets.
   const HIT_CYCLE_PRECISION = 1000;
   const hitCycle = { key: '', idx: 0 };
@@ -858,8 +866,17 @@ async () => {
     const hits = [];
     rects.forEach((rect, idx) => {
       if (!rect) return;
-      const withinX = gx >= rect.x && gx <= rect.x + rect.w;
-      const withinY = gy >= rect.y && gy <= rect.y + rect.h;
+      const cx = rect.x + rect.w / 2;
+      const cy = rect.y + rect.h / 2;
+      const theta = rectThetaDeg(rect) * Math.PI / 180;
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      const dx = gx - cx;
+      const dy = gy - cy;
+      const localX = dx * cos + dy * sin;
+      const localY = -dx * sin + dy * cos;
+      const withinX = Math.abs(localX) <= rect.w / 2;
+      const withinY = Math.abs(localY) <= rect.h / 2;
       if (withinX && withinY) {
         const area = Math.max(0, rect.w * rect.h);
         hits.push({ rect, idx, area });
@@ -1003,6 +1020,7 @@ async () => {
       rectY.value = Math.round(r.y * state.img.naturalH);
       rectW.value = Math.round(r.w * state.img.naturalW);
       rectH.value = Math.round(r.h * state.img.naturalH);
+      if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
       try { renderSepsInspector(r); } catch {}
     } else {
       clearSelection({ skipRender: true });
@@ -1048,6 +1066,8 @@ function renderRects() {
       el.style.top  = (r.y * state.img.naturalH) + 'px';
       el.style.width  = (r.w * state.img.naturalW) + 'px';
       el.style.height = (r.h * state.img.naturalH) + 'px';
+      el.style.transformOrigin = '50% 50%';
+      el.style.transform = `rotate(${rectThetaDeg(r)}deg)`;
       el.onclick = (ev) => {
         ev.stopPropagation();
         if (state.mode === 'select') return;
@@ -1188,6 +1208,7 @@ function renderSepsInspector(r){
         y: H ? yPx / H : 0,
         w: W ? wPx / W : 0,
         h: H ? hPx / H : 0,
+        'θ': 0,
         seps: [],
         extract_text: false,
         reference: false,
@@ -1198,6 +1219,7 @@ function renderSepsInspector(r){
       base.y = H ? yPx / Math.max(H, 1) : base.y;
       base.w = W ? wPx / Math.max(W, 1) : base.w;
       base.h = H ? hPx / Math.max(H, 1) : base.h;
+      base['θ'] = getNumber(raw['θ'], getNumber(raw.theta, getNumber(base['θ'], 0)));
       if (Array.isArray(raw.seps) && raw.seps.length) {
         const rectHeight = Math.max(hPx, 1);
         base.seps = raw.seps.map((s) => {
@@ -1481,6 +1503,7 @@ function renderSepsInspector(r){
       // update inspector fields
       rectX.value = Math.round(r.x * state.img.naturalW);
       rectY.value = Math.round(r.y * state.img.naturalH);
+      if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
       return;
     }
     if (resizing) {
@@ -1511,6 +1534,7 @@ function renderSepsInspector(r){
       rectY.value = Math.round(r.y * state.img.naturalH);
       rectW.value = Math.round(r.w * state.img.naturalW);
       rectH.value = Math.round(r.h * state.img.naturalH);
+      if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
       return;
     }
   });
@@ -1525,7 +1549,7 @@ function renderSepsInspector(r){
       if (w > 0.002 && h > 0.002) {
         try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
         const id = 'r-' + Math.random().toString(36).slice(2, 9);
-        const rect = { id, name: '', x, y, w, h, extract_text: true, reference: false, noise: false };
+        const rect = { id, name: '', x, y, w, h, extract_text: true, reference: false, noise: false, 'θ': 0 };
         state.rects.push(rect);
         selectRect(id);
         markDirty(true);
@@ -1611,13 +1635,18 @@ function renderSepsInspector(r){
     if (!r) return;
     const W = state.img.naturalW, H = state.img.naturalH;
     let x = +rectX.value || 0, y = +rectY.value || 0, w = +rectW.value || 1, h = +rectH.value || 1;
+    const thetaInput = rectTheta ? Number(rectTheta.value) : 0;
+    const theta = Number.isFinite(thetaInput) ? thetaInput : 0;
     x = clamp(x, 0, W-1); y = clamp(y, 0, H-1);
     w = clamp(w, 1, W - x); h = clamp(h, 1, H - y);
     r.x = x / W; r.y = y / H; r.w = w / W; r.h = h / H;
+    r['θ'] = theta;
     rectX.value = Math.round(x); rectY.value = Math.round(y); rectW.value = Math.round(w); rectH.value = Math.round(h);
+    if (rectTheta) rectTheta.value = String(theta);
     renderRects(); markDirty(true);
   }
   rectX.onchange = rectY.onchange = rectW.onchange = rectH.onchange = applyRectEdits;
+  if (rectTheta) rectTheta.onchange = applyRectEdits;
   btnDelRect.onclick = () => {
     try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
     const id = overlay.dataset.selected || '';
