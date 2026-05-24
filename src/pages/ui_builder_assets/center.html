@@ -1,6 +1,21 @@
 <!-- Main workspace markup housing toolbar, canvas, and uploader. -->
 
 <div id='center'>
+  <div id='evaluate-all-popup' class='collector-popup hidden' role='dialog' aria-modal='true' aria-labelledby='evaluate-all-title'>
+    <div id='evaluate-all-backdrop' class='collector-popup-backdrop'></div>
+    <div class='collector-popup-card'>
+      <div id='evaluate-all-title' class='collector-popup-title'>Bulk evaluation</div>
+      <label for='evaluate-all-mode' class='collector-popup-label'>Mode</label>
+      <select id='evaluate-all-mode' class='collector-popup-select'>
+        <option value='all'>Evaluate all</option>
+        <option value='empty'>Evaluate empty images (images who dont have any rectangles)</option>
+      </select>
+      <div class='collector-popup-actions'>
+        <button id='btn-evaluate-all-cancel' class='btn'>Cancel</button>
+        <button id='btn-evaluate-all-start' class='btn primary'>Start</button>
+      </div>
+    </div>
+  </div>
   <div class='toolbar'>
     <input id='api-title' class='api-title' type='text' placeholder='API name' />
     <div id='collector-template-picker' class='collector-template-picker collector-control'>

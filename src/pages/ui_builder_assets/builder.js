@@ -87,6 +87,12 @@ async () => {
   const btnRedo = document.getElementById('btn-redo');
   const btnDelete = document.getElementById('btn-delete-api');
   const btnGenerateRects = document.getElementById('btn-generate-rects');
+  const btnEvaluateAll = document.getElementById('btn-evaluate-all');
+  const evaluateAllPopup = document.getElementById('evaluate-all-popup');
+  const evaluateAllBackdrop = document.getElementById('evaluate-all-backdrop');
+  const evaluateAllMode = document.getElementById('evaluate-all-mode');
+  const btnEvaluateAllStart = document.getElementById('btn-evaluate-all-start');
+  const btnEvaluateAllCancel = document.getElementById('btn-evaluate-all-cancel');
   const btnClearRects = document.getElementById('btn-clear-rects');
   const collectorStatus = document.getElementById('collector-status');
   const collectorTemplatePicker = document.getElementById('collector-template-picker');
@@ -300,6 +306,7 @@ async () => {
     const hasTemplate = !!selectedTemplateId();
     if (btnNew) btnNew.disabled = !hasTemplate;
     if (btnGenerateRects) btnGenerateRects.disabled = !hasTemplate || !state.selected || state.evaluating || String(state.selected).startsWith('pending-');
+    if (btnEvaluateAll) btnEvaluateAll.disabled = !hasTemplate || state.evaluating || !state.apis.some((item) => item && !item.pending && item.id);
     if (collectorTemplateButton) collectorTemplateButton.disabled = !state.templates.length;
   }
 
@@ -512,6 +519,93 @@ async () => {
     }
   }
 
+  async function evaluateAllItems() {
+    if (!config.enableCollectorControls) return;
+    const mode = String((evaluateAllMode && evaluateAllMode.value) || 'all').toLowerCase();
+    const hasAnyRectangles = (item) => {
+      if (!item) return false;
+      const extract = Array.isArray(item.extract_text) ? item.extract_text : [];
+      const references = Array.isArray(item.references) ? item.references : [];
+      const noise = Array.isArray(item.noise) ? item.noise : [];
+      const rects = Array.isArray(item.rects) ? item.rects : [];
+      return !!(extract.length || references.length || noise.length || rects.length);
+    };
+    const shouldEvaluateItem = (item) => {
+      if (!item || item.pending || !item.id) return false;
+      if (mode === 'empty') return !hasAnyRectangles(item);
+      return true;
+    };
+    const items = (state.apis || []).filter(shouldEvaluateItem);
+    if (!items.length) {
+      setCollectorStatus(mode === 'empty' ? 'No empty images to evaluate' : 'No images to evaluate', true);
+      return;
+    }
+    if (state.dirty) {
+      const shouldSave = confirm('You have unsaved rectangle edits. Save before evaluating all?');
+      if (shouldSave) {
+        const ok = await doSave();
+        if (!ok) {
+          setCollectorStatus('Save failed. Evaluation cancelled.', true);
+          return;
+        }
+      } else {
+        markDirty(false);
+      }
+    }
+
+    const total = items.length;
+    const previousSelected = state.selected;
+    let completed = 0;
+    let failed = 0;
+
+    state.evaluating = true;
+    setCollectorActionState();
+    try {
+      for (let i = 0; i < total; i += 1) {
+        const item = items[i];
+        const label = (item && (item.name || item._pendingName)) || `item ${i + 1}`;
+        setCollectorStatus(`Evaluating ${i + 1}/${total}: ${label}...`);
+        try {
+          const resp = await fetch(apiUrl(`/apis/${item.id}/evaluate`), { method: 'POST' });
+          if (!resp.ok) throw new Error('evaluate');
+          const doc = await resp.json();
+          upsertApiDocs([doc]);
+          completed += 1;
+        } catch (err) {
+          console.error(err);
+          failed += 1;
+        }
+      }
+
+      renderList();
+      const selectedStillExists = previousSelected && state.apis.find((item) => item.id === previousSelected);
+      if (selectedStillExists) {
+        await loadApi(previousSelected);
+      } else if (state.apis.length) {
+        await loadApi(state.apis[0].id);
+      }
+
+      const modeLabel = mode === 'empty' ? 'empty images' : 'images';
+      const msg = failed
+        ? `Evaluated ${completed}/${total} ${modeLabel} (${failed} failed)`
+        : `Evaluated ${completed}/${total} ${modeLabel}`;
+      setCollectorStatus(msg, failed > 0);
+    } finally {
+      state.evaluating = false;
+      setCollectorActionState();
+    }
+  }
+
+  function openEvaluateAllPopup() {
+    if (!evaluateAllPopup) return;
+    evaluateAllPopup.classList.remove('hidden');
+  }
+
+  function closeEvaluateAllPopup() {
+    if (!evaluateAllPopup) return;
+    evaluateAllPopup.classList.add('hidden');
+  }
+
   function clearAllRectangles() {
     if (!config.enableCollectorControls) return;
     if (!state.rects.length) {
@@ -592,6 +686,13 @@ async () => {
   if (btnRedo) btnRedo.onclick = () => redo();
   if (btnDelete) btnDelete.onclick = () => { deleteSelectedApi(); };
   if (btnGenerateRects) btnGenerateRects.onclick = () => { evaluateCurrentItem(); };
+  if (btnEvaluateAll) btnEvaluateAll.onclick = () => { openEvaluateAllPopup(); };
+  if (btnEvaluateAllCancel) btnEvaluateAllCancel.onclick = () => { closeEvaluateAllPopup(); };
+  if (evaluateAllBackdrop) evaluateAllBackdrop.onclick = () => { closeEvaluateAllPopup(); };
+  if (btnEvaluateAllStart) btnEvaluateAllStart.onclick = async () => {
+    closeEvaluateAllPopup();
+    await evaluateAllItems();
+  };
   if (btnClearRects) btnClearRects.onclick = () => { clearAllRectangles(); };
   if (collectorTemplateButton) {
     collectorTemplateButton.onclick = (ev) => {
@@ -644,6 +745,10 @@ async () => {
   });
 
   window.addEventListener('keyup', (e) => {
+    if (e.key === 'Escape' && evaluateAllPopup && !evaluateAllPopup.classList.contains('hidden')) {
+      closeEvaluateAllPopup();
+      return;
+    }
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       keyNudgeActive = false;
     }
