@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 
 def _rect_groups(doc: dict) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     extract_text = [copy.deepcopy(r) for r in doc.get("extract_text") or [] if isinstance(r, dict)]
@@ -48,6 +50,53 @@ def _safe_rect_payload(rect: dict) -> dict:
     }
 
 
+def _template_to_scene_homography(result: dict, scene_shape: tuple[int, int, int], scene_min_side: int) -> np.ndarray:
+    scene_h, scene_w = scene_shape[:2]
+    alpha = float(scene_min_side) / float(min(scene_h, scene_w))
+    if alpha <= 0:
+        raise RuntimeError("Invalid scene scale during evaluation mapping.")
+    scale_back = np.array(
+        [[1.0 / alpha, 0.0, 0.0], [0.0, 1.0 / alpha, 0.0], [0.0, 0.0, 1.0]],
+        dtype=np.float64,
+    )
+    h_template_to_det = np.asarray(result["homography"], dtype=np.float64)
+    return scale_back @ h_template_to_det
+
+
+def _map_rects_template_to_scene(rects: list[dict], h_template_to_scene: np.ndarray, cv2, scene_w: int, scene_h: int) -> list[dict]:
+    mapped: list[dict] = []
+    for rect in rects:
+        x = float(rect.get("x", 0))
+        y = float(rect.get("y", 0))
+        w = float(rect.get("w", rect.get("width", 0)))
+        h = float(rect.get("h", rect.get("height", 0)))
+        if w <= 0 or h <= 0:
+            continue
+
+        quad = np.array([[[x, y], [x + w, y], [x + w, y + h], [x, y + h]]], dtype=np.float32)
+        quad_scene = cv2.perspectiveTransform(quad, h_template_to_scene)[0]
+
+        min_x = float(np.clip(np.min(quad_scene[:, 0]), 0, max(scene_w - 1, 0)))
+        max_x = float(np.clip(np.max(quad_scene[:, 0]), 0, max(scene_w - 1, 0)))
+        min_y = float(np.clip(np.min(quad_scene[:, 1]), 0, max(scene_h - 1, 0)))
+        max_y = float(np.clip(np.max(quad_scene[:, 1]), 0, max(scene_h - 1, 0)))
+
+        if max_x <= min_x or max_y <= min_y:
+            continue
+
+        mapped.append(
+            {
+                "id": rect.get("id") or rect.get("name") or "",
+                "name": rect.get("name") or "",
+                "x": min_x,
+                "y": min_y,
+                "w": max_x - min_x,
+                "h": max_y - min_y,
+            }
+        )
+    return mapped
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--object-root", required=True)
@@ -63,7 +112,7 @@ def main() -> int:
 
     import cv2  # type: ignore
     from src.template_image_class import TemplateImage  # type: ignore
-    from src.detect_image import detect_image, build_cutout_and_Ht2rc_native, map_rects_template_to_rectified_native  # type: ignore
+    from src.detect_image import detect_image  # type: ignore
 
     doc = json.loads(Path(args.template_doc).read_text(encoding="utf-8"))
     template_bgr = cv2.imread(str(args.template_image), cv2.IMREAD_COLOR)
@@ -93,10 +142,10 @@ def main() -> int:
         return 0
 
     score = round(float(detection_result.get("return_pct_x_success", 0.0)), 3)
-    cutout, h_template_to_rectified = build_cutout_and_Ht2rc_native(scene_bgr, detection_result, meta)
+    h_template_to_scene = _template_to_scene_homography(detection_result, scene_bgr.shape, scene_scales[0])
 
     def map_group(group: list[dict], flag: str) -> list[dict]:
-        mapped = map_rects_template_to_rectified_native(group, h_template_to_rectified, keep_template_size=False)
+        mapped = _map_rects_template_to_scene(group, h_template_to_scene, cv2, scene_bgr.shape[1], scene_bgr.shape[0])
         out = []
         for item in mapped:
             payload = _safe_rect_payload(item)
@@ -107,9 +156,9 @@ def main() -> int:
     payload = {
         "success": score >= 0.2,
         "confidence_score": score,
-        "evaluated_image_base64": _encode_png_b64(cv2, cutout),
-        "image_width": int(cutout.shape[1]),
-        "image_height": int(cutout.shape[0]),
+        "evaluated_image_base64": _encode_png_b64(cv2, scene_bgr),
+        "image_width": int(scene_bgr.shape[1]),
+        "image_height": int(scene_bgr.shape[0]),
         "extract_text": map_group(template.extract_text, "extract_text"),
         "references": map_group(template.references, "reference"),
         "noise": map_group(template.noise, "noise"),
