@@ -74,8 +74,6 @@ def get_secret(name: str, default: Optional[str] = None) -> str:
 # -------------------------------------------------------------------------
 
 _PROJECT_SECRETS = [
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
     "STRIPE_SECRET_KEY",
     "STRIPE_PRICE_ID_STARTER",
     "STRIPE_PRICE_ID_MEDIUM",

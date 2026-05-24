@@ -1,4 +1,4 @@
-# docker run --rm -p 8080:8080 api-builder-webapp:latest
+# docker run --rm -p 8080:8080 object-detection-data-webapp:latest
 ARG BASE_IMAGE=webapp-cache:latest
 FROM ${BASE_IMAGE}
 

@@ -42,7 +42,7 @@ log = logging.getLogger("stripe_webhooks")
 
 @payment_router.get("/header/credits", response_class=HTMLResponse)
 def header_credits(request: Request, db: Session = Depends(get_payment_db)):
-    user = (request.session or {}).get("user") or {}
+    user = get_user(request) or {}
     sub = (user or {}).get("sub")
 
     balance = 0
@@ -97,7 +97,7 @@ async def create_checkout_session(request: Request):
     if not STRIPE_SECRET_KEY:
         raise HTTPException(status_code=500, detail="Stripe not configured")
 
-    user  = request.session.get("user") or {}
+    user  = get_user(request) or {}
     email = user.get("email")
     sub   = user.get("sub")
 

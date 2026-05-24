@@ -178,3 +178,7 @@ Installation.sh
 
 src_old/
 env.prod
+
+local_storage/
+image_db/
+detection_photos/

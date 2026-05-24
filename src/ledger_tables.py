@@ -7,7 +7,7 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 class AppUser(Base):
-    """Maps user's app id to google´s oauth id (or other login providers in the future)"""
+    """Maps the app user id to the configured login subject."""
     __tablename__ = "app_user"
     id = Column(Integer, primary_key=True, autoincrement=True)
     oauth_sub = Column(String(255), unique=True, nullable=False, index=True)

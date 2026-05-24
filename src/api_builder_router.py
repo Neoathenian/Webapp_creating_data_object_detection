@@ -238,7 +238,11 @@ def _save_api(doc: Dict[str, Any]) -> None:
 
 
 def _list_user_apis(uid: str) -> List[Dict[str, Any]]:
-    return list(iter_user_docs(uid))
+    return [
+        doc
+        for doc in iter_user_docs(uid)
+        if isinstance(doc, dict) and doc.get("kind") != "data_collector"
+    ]
 
 
 router = APIRouter(prefix="/builder", tags=["builder"])
@@ -303,6 +307,7 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
     now = _now_iso()
     doc: Dict[str, Any] = {
         "id": api_id,
+        "kind": "api_builder",
         "user_id": uid,
         "name": api_name,
         "created_at": now,

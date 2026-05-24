@@ -2,7 +2,7 @@ from __future__ import annotations
 import html
 from typing import Any, Optional
 from starlette.requests import Request as StarletteRequest
-from src.login_logic import get_user
+from src.login_logic import get_user, local_auth_enabled
 from src.css.utils import load_css
 
 LOGO_URL = "/images/Logo.png"
@@ -79,6 +79,8 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
             if photo else f'<div class="avatar-circle">{initial}</div>'
         )
 
+        logout_link = "" if local_auth_enabled() else '<a href="/logout" role="menuitem" class="menu-link">Logout</a>'
+
         account_html = f"""
 <details class="account-menu">
   <summary class="account-btn" aria-label="{name}">
@@ -91,28 +93,19 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
     </div>
     <a href="/profile/" role="menuitem" class="menu-link">Profile</a>
     <a href="/api-keys/" role="menuitem" class="menu-link">API keys</a>
-    <a href="/logout" role="menuitem" class="menu-link">Logout</a>
+    {logout_link}
   </div>
 </details>""".strip()
 
         # Order: [credits][profile] — both in the SAME flex row, touching.
         right = f'<nav class="nav nav-tight">{_credits_iframe()}{account_html}</nav>'
     else:
-        #This is literally the svg code for the google button
-        google_btn = """
-            <a href="/auth/google" class="google-btn-pill" aria-label="Sign in with Google">
-            <div class="google-icon-wrapper">
-                <svg class="google-icon" viewBox="0 0 48 48" width="20" height="20">
-                <path fill="#FFC107" d="M43.6 20.5h-1.9V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.8 3l5.7-5.7C33 6.1 28.8 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/>
-                <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.2 16.4 18.7 13 24 13c3 0 5.7 1.1 7.8 3l5.7-5.7C33 6.1 28.8 4 24 4 16.3 4 9.6 8.5 6.3 14.7z"/>
-                <path fill="#4CAF50" d="M24 44c5.9 0 10.9-2.3 14.6-6.1l-6.9-5.7c-2 1.4-4.5 2.3-7.7 2.3-5.3 0-9.7-3.4-11.3-8l-6.7 5.2C9.4 39.4 16.2 44 24 44z"/>
-                <path fill="#1976D2" d="M43.6 20.5H24v8h11.3c-.7 1.9-2.1 3.7-4 4.9l.1-.1 6.9 5.7c-.5.5 8.7-6.3 8.7-18 0-1.3-.1-2.7-.4-3.5z"/>
-                </svg>
-            </div>
-            <span class="btn-text">Sign in with Google</span>
+        action_btn = """
+            <a href="/login/local" class="header-action-pill" aria-label="Open builder">
+            <span class="btn-text">Open builder</span>
             </a>
             """.strip()
-        right = f'<nav class="nav">{google_btn}</nav>'
+        right = f'<nav class="nav">{action_btn}</nav>'
 
     # Left-side: site logo (always) and optional Protected link (when logged in)
     logo_html = (
@@ -125,7 +118,8 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
     if user:
         home_link = '<a href="/?home=1" class="hdr-link hdr-link--home">Home</a>'
         builder_link = '<a href="/app/" class="hdr-link hdr-link--builder">Builder</a>'
-        left_link = f"{home_link}\n      {builder_link}"
+        collector_link = '<a href="/data-collector/" class="hdr-link hdr-link--builder">Data collector</a>'
+        left_link = f"{home_link}\n      {builder_link}\n      {collector_link}"
     else:
         left_link = ''
 

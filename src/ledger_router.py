@@ -9,6 +9,7 @@ from src.ledger_db_access import get_payment_db
 from src.ledger_tables import UserBalance, CreditLedger
 from src.ledger_tables import AppUser
 from src.secrets import get_secret
+from src.login_logic import get_user
 
 
 DEFAULT_SIGNUP_CREDITS = int(get_secret("SIGNUP_CREDITS", default="0") or 0)
@@ -59,8 +60,7 @@ def ensure_user_signup_bonus(sub: str, db: Session) -> int:
 
 def get_current_user_id(request: Request, db: Session = Depends(get_payment_db)) -> int:
     """This is to get the current user ID from the request (not the oauth, but db pk)."""
-    sess = getattr(request, "session", {}) or {}
-    user = sess.get("user") or {}
+    user = get_user(request) or {}
     sub = user.get("sub")
     if not sub:
         raise HTTPException(status_code=401, detail="not_authenticated")

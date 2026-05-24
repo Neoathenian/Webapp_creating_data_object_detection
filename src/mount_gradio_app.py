@@ -4,7 +4,7 @@ from starlette.responses import RedirectResponse
 import gradio as gr
 from starlette.middleware.sessions import SessionMiddleware
 
-from src.login_logic import add_login_routes
+from src.login_logic import add_login_routes, get_user
 from src.secrets import get_secret
 
 GRADIO_PUBLIC_PREFIXES = (
@@ -37,8 +37,10 @@ def add_middleware_redirect(app, app_route: str):
     async def check_authentication(request: Request, call_next):
         path = request.url.path
 
+        user = get_user(request)
+
         # If user is already authenticated and hits root, send to app
-        if path == "/" and request.session.get("user") and not request.query_params.get("home"):
+        if path == "/" and user and not request.query_params.get("home"):
             # Always send authenticated users to the main protected app
             return RedirectResponse(url="/app/")
 
@@ -55,7 +57,7 @@ def add_middleware_redirect(app, app_route: str):
 
         # Require session for protected mount pages
         if path.startswith(app_route):
-            if not request.session.get("user"):
+            if not user:
                 return RedirectResponse(url="/")
             return await call_next(request)
 

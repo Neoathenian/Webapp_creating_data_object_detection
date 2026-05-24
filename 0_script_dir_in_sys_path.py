@@ -15,14 +15,17 @@ import uvicorn
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8086)
+    ap.add_argument("--port", type=int, default=8088)
     ap.add_argument("--env", type=str, default="dev")
+    ap.add_argument("--local", action="store_true")
 
     args = ap.parse_args()
 
     # Load .env relative to this script so it works regardless of CWD
     env_path = os.path.join(script_directory, f"env.{args.env}")
     load_dotenv(env_path, override=True)
+
+    os.environ["API_STORAGE_MODE"] = "local" if args.local else ""
 
     # Normalize GOOGLE_APPLICATION_CREDENTIALS to POSIX/absolute path
     gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")

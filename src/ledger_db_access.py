@@ -4,7 +4,7 @@ import os
 from types import SimpleNamespace
 from typing import Generator, Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from google.cloud.sql.connector import Connector, IPTypes
 from sqlalchemy import create_engine
 from google.oauth2 import service_account
@@ -53,6 +53,11 @@ def _connect_factory(connector: Connector):
 
 def init_payment_db_state() -> SimpleNamespace:
     direct_url = os.getenv("LEDGER_DATABASE_URL")
+    local_mode = os.getenv("API_STORAGE_MODE", "").strip().lower() == "local"
+    skip_db = os.getenv("DISABLE_PAYMENT_DB", "").strip().lower() in ("1", "true", "yes", "on")
+
+    if (local_mode or skip_db) and not direct_url:
+        return SimpleNamespace(connector=None, engine=None, SessionLocal=None, disabled=True)
 
     connector: Optional[Connector] = None
     if direct_url:
@@ -74,7 +79,8 @@ def init_payment_db_state() -> SimpleNamespace:
 
 def shutdown_payment_db_state(state: SimpleNamespace) -> None:
     try:
-        state.engine.dispose()
+        if getattr(state, "engine", None):
+            state.engine.dispose()
     except Exception:
         pass
     try:
@@ -89,6 +95,8 @@ def get_payment_db(request: Request) -> Generator[Session, None, None]:
     FastAPI dependency. Pull Session factory from app.state (no globals).
     """
     SessionLocal = request.app.state.db.SessionLocal
+    if SessionLocal is None:
+        raise HTTPException(status_code=503, detail="Payment ledger is disabled in local mode")
     db: Session = SessionLocal()
     try:
         yield db

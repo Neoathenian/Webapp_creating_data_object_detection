@@ -3,6 +3,15 @@
 <div id='center'>
   <div class='toolbar'>
     <input id='api-title' class='api-title' type='text' placeholder='API name' />
+    <div id='collector-template-picker' class='collector-template-picker collector-control'>
+      <button id='collector-template-button' class='collector-template-button' type='button' title='Template' aria-label='Template'>
+        <span class='template-thumb'><img id='collector-template-thumb' alt='' /></span>
+        <span id='collector-template-label'>Template</span>
+        <span class='template-chevron' aria-hidden='true'>▾</span>
+      </button>
+      <div id='collector-template-menu' class='collector-template-menu hidden'></div>
+    </div>
+    <select id='collector-template-select' class='collector-template-select collector-control' title='Template' aria-label='Template'></select>
     <button id='mode-select' class='mode-btn icon active' data-mode='select' title='Select' aria-label='Select'>
       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path d="M3 3l7 14 2-6 6-2-15-6z"></path>
@@ -22,6 +31,8 @@
     </button>
   <span class='zoom-wrap'>Zoom <input id='zoom-range' class='zoom-range' type='range' min='20' max='300' value='100' /> <span id='zoom-label'>100%</span></span>
   <button id='btn-save' class='save-btn' disabled>Save</button>
+  <button id='btn-generate-rects' class='mode-btn collector-control' title='Evaluate image with selected template' aria-label='Evaluate image with selected template'>Evaluate</button>
+  <button id='btn-clear-rects' class='mode-btn danger collector-control' title='Clear all rectangles' aria-label='Clear all rectangles'>Clear rectangles</button>
   <button id='btn-undo' class='mode-btn' title='Undo (Ctrl+Z)' aria-label='Undo'>⟲</button>
   <button id='btn-redo' class='mode-btn' title='Redo (Ctrl+Y)' aria-label='Redo'>⟳</button>
   <button id='btn-delete-api' class='mode-btn icon danger' title='Delete API' aria-label='Delete API'>
@@ -34,6 +45,7 @@
       <path d='M6 6l1 14h10l1-14'></path>
     </svg>
   </button>
+  <span id='collector-status' class='collector-status collector-control'></span>
 </div>
   <div class='integration-panel' id='integration-panel'>
     <div class='integration-section endpoint-section'>
@@ -78,7 +90,7 @@ with image_path.open("rb") as f:
     </div>
   </div>
   <div class='create-area' id='create-area'>
-    <div style='margin-bottom:6px;color:#374151;'>Upload an image to start a new API</div>
+    <div id='create-prompt' style='margin-bottom:6px;color:#374151;'>Upload an image to start a new API</div>
     <div id='new-api-uploader-slot'></div>
   </div>
     <div class='workspace mode-draw' id='workspace'>

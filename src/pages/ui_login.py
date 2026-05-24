@@ -8,8 +8,8 @@ def _header_root(request: gr.Request):
 def make_login_page() -> gr.Blocks:
     with gr.Blocks(title="Pattern2json") as login_page:
         hdr = gr.HTML()
-        gr.Markdown("## Welcome\nThis is the public homepage. Please sign in to continue.")
-        gr.Markdown("- Public info\n- Marketing copy\n- Whatever you want here")
+        gr.Markdown("## Pattern2json\nCreate and manage object-detection API definitions.")
+        gr.HTML('<p><a href="/login/local">Open builder</a></p>')
 
         login_page.load(_header_root, outputs=[hdr])
 

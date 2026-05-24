@@ -1,73 +1,94 @@
-from typing import List, Dict, Any,Optional
-from authlib.integrations.starlette_client import OAuth
+import os
+from typing import Any, Optional
 
 from starlette.requests import Request
+from starlette.requests import Request as StarletteRequest
 from starlette.responses import RedirectResponse
 
-from starlette.requests import Request as StarletteRequest
 
-from src.ledger_router import ensure_user_signup_bonus
-
-oauth = OAuth()
-login_providers: List[Dict[str, Any]] = []
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_LOCAL_AUTH_MODES = {"local", "none", "disabled", "noauth", "no-auth"}
 
 
-def register_oauth_provider(*args, **kwargs):
-    login_providers.append(kwargs)
-    return oauth.register(*args, **kwargs)
+def local_auth_enabled() -> bool:
+    mode = os.getenv("AUTH_MODE", "local").strip().lower()
+    disable_auth = os.getenv("DISABLE_AUTH", "").strip().lower()
+    return mode in _LOCAL_AUTH_MODES or disable_auth in _TRUE_VALUES
+
+
+def local_user() -> dict:
+    email = os.getenv("LOCAL_USER_EMAIL", "object-detection-local@localhost").strip()
+    name = os.getenv("LOCAL_USER_NAME", "Object Detection Builder").strip()
+    sub = os.getenv("LOCAL_USER_SUB", email or "object-detection-local").strip()
+    return {
+        "sub": sub or "object-detection-local",
+        "email": email or "object-detection-local@localhost",
+        "name": name or "Object Detection Builder",
+        "picture": "",
+    }
+
+
+def _session_user(request: Any) -> Optional[dict]:
+    if not request:
+        return None
+    if hasattr(request, "request") and hasattr(request.request, "session"):
+        user = request.request.session.get("user")
+        return user if isinstance(user, dict) else None
+    if isinstance(request, StarletteRequest):
+        user = request.session.get("user")
+        return user if isinstance(user, dict) else None
+    return None
+
+
+def _ensure_signup_bonus(request: Request, sub: str) -> None:
+    session_factory = getattr(getattr(request.app.state, "db", None), "SessionLocal", None)
+    if not sub or not session_factory:
+        return
+
+    from src.ledger_router import ensure_user_signup_bonus
+
+    db = session_factory()
+    try:
+        ensure_user_signup_bonus(sub, db)
+    except Exception:
+        pass
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def add_login_routes(app, app_route: str = "/app"):
     @app.get("/logout")
     async def logout(request: Request):
         request.session.pop("user", None)
+        if local_auth_enabled():
+            return RedirectResponse(f"{app_route}/")
         return RedirectResponse("/")
+
+    @app.get("/login/local")
+    async def local_login(request: Request):
+        if not local_auth_enabled():
+            return RedirectResponse("/")
+
+        user = local_user()
+        request.session["user"] = user
+        _ensure_signup_bonus(request, user["sub"])
+        return RedirectResponse(f"{app_route}/")
 
     @app.get(app_route)
     async def _redir_to_slash():
         return RedirectResponse(f"{app_route}/")
 
-    for p in login_providers:
-        name = p["name"]
-        start_route_name = f"auth_start_{name}"
-        cb_route_name    = f"auth_callback_{name}"
-
-        @app.get(f"/auth/{name}", name=start_route_name)
-        async def auth_start(request: Request, _name=name, _cb=cb_route_name):
-            client = oauth.create_client(_name)
-            redirect_uri = request.url_for(_cb)
-            return await client.authorize_redirect(request, redirect_uri)
-
-        @app.get(f"/auth/{name}/callback", name=cb_route_name)
-        async def auth_callback(request: Request, _name=name, _app_route=app_route):
-            client = oauth.create_client(_name)
-            token = await client.authorize_access_token(request)
-            userinfo = token.get("userinfo") or await client.parse_id_token(request, token)
-            request.session["user"] = dict(userinfo)
-
-            sub = userinfo.get("sub")
-            session_factory = getattr(getattr(request.app.state, "db", None), "SessionLocal", None)
-            if sub and session_factory:
-                db = session_factory()
-                try:
-                    ensure_user_signup_bonus(sub, db)
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        db.close()
-                    except Exception:
-                        pass
-
-            return RedirectResponse(f"{_app_route}/")
-        
 
 def get_user(request: Any) -> Optional[dict]:
     try:
-        if hasattr(request, "request") and hasattr(request.request, "session"):
-            return request.request.session.get("user")
-        if isinstance(request, StarletteRequest):
-            return request.session.get("user")
+        user = _session_user(request)
+        if user:
+            return user
     except Exception:
         pass
+    if local_auth_enabled():
+        return local_user()
     return None

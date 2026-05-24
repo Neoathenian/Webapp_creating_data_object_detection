@@ -1,6 +1,39 @@
 // Client-side logic powering the interactive API builder workspace.
 
 async () => {
+  const path = (typeof window !== 'undefined' && window.location && window.location.pathname) ? window.location.pathname : '';
+  const inferredCollector = path.replace(/\/+$/, '').endsWith('/data-collector') || path.includes('/data-collector/');
+  const defaultConfig = inferredCollector ? {
+    apiPrefix: '/data-collector',
+    pagePath: '/data-collector',
+    sidebarTitle: 'Data collector',
+    newButtonText: '+ Add files',
+    titlePlaceholder: 'Sample name',
+    uploadPrompt: 'Add images for the selected template',
+    emptyHint: 'Choose a template, then add images to evaluate.',
+    deleteLabel: 'image',
+    showIntegration: false,
+    enableCollectorControls: true,
+    autoGenerateOnCreate: false,
+  } : {
+    apiPrefix: '/builder',
+    pagePath: '/app',
+    sidebarTitle: 'APIs',
+    newButtonText: '+ New API',
+    titlePlaceholder: 'API name',
+    uploadPrompt: 'Upload an image to start a new API',
+    emptyHint: 'Select an API from the left or create a new one.',
+    deleteLabel: 'API',
+    showIntegration: true,
+    enableCollectorControls: false,
+    autoGenerateOnCreate: false,
+  };
+  const injectedConfig = (typeof window !== 'undefined' && window.__BUILDER_CONFIG__) || {};
+  const config = { ...defaultConfig, ...injectedConfig };
+  const apiPrefix = String(config.apiPrefix || '/builder').replace(/\/+$/, '');
+  const apiUrl = (path) => `${apiPrefix}${path.startsWith('/') ? path : `/${path}`}`;
+  const deleteLabel = config.deleteLabel || 'API';
+
   // State
   const state = {
     apis: [],
@@ -12,12 +45,17 @@ async () => {
     dirty: false,
     loaded: false,
     deleting: false,
+    evaluating: false,
+    templates: [],
+    selectedTemplate: null,
   };
 
   // Elements
   const listEl = document.getElementById('api-list');
   const btnNew = document.getElementById('btn-new-api');
+  const sidebarTitle = document.querySelector('#sidebar h3');
   const createArea = document.getElementById('create-area');
+  const createPrompt = document.getElementById('create-prompt');
   const slot = document.getElementById('new-api-uploader-slot');
   const hiddenMount = document.getElementById('new-api-upload');
   const hint = document.getElementById('workspace-hint');
@@ -48,6 +86,16 @@ async () => {
   const btnUndo = document.getElementById('btn-undo');
   const btnRedo = document.getElementById('btn-redo');
   const btnDelete = document.getElementById('btn-delete-api');
+  const btnGenerateRects = document.getElementById('btn-generate-rects');
+  const btnClearRects = document.getElementById('btn-clear-rects');
+  const collectorStatus = document.getElementById('collector-status');
+  const collectorTemplatePicker = document.getElementById('collector-template-picker');
+  const collectorTemplateButton = document.getElementById('collector-template-button');
+  const collectorTemplateMenu = document.getElementById('collector-template-menu');
+  const collectorTemplateThumb = document.getElementById('collector-template-thumb');
+  const collectorTemplateLabel = document.getElementById('collector-template-label');
+  const collectorTemplateSelect = document.getElementById('collector-template-select');
+  const integrationPanel = document.getElementById('integration-panel');
   if (btnDelete) btnDelete.disabled = true;
   const endpointInp = document.getElementById('api-endpoint');
   const copyEndpointBtn = document.getElementById('btn-copy-endpoint');
@@ -57,6 +105,14 @@ async () => {
   const copyPythonBtn = document.getElementById('btn-copy-python-example');
   const pythonCodeBlock = pythonSample ? pythonSample.querySelector('code') : null;
   const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
+
+  document.body.classList.toggle('collector-enabled', !!config.enableCollectorControls);
+  if (sidebarTitle && config.sidebarTitle) sidebarTitle.textContent = config.sidebarTitle;
+  if (btnNew && config.newButtonText) btnNew.textContent = config.newButtonText;
+  if (titleInp && config.titlePlaceholder) titleInp.placeholder = config.titlePlaceholder;
+  if (createPrompt && config.uploadPrompt) createPrompt.textContent = config.uploadPrompt;
+  if (hint && config.emptyHint) hint.textContent = config.emptyHint;
+  if (integrationPanel && config.showIntegration === false) integrationPanel.classList.add('hidden');
 
   function syncBaseAccess(doc) {
     if (!doc) return;
@@ -103,6 +159,7 @@ async () => {
       const canDelete = !!(state.selected && !isPending && !state.deleting);
       btnDelete.disabled = !canDelete;
     }
+    setCollectorActionState();
     if (cleared) renderList();
   }
 
@@ -180,7 +237,7 @@ async () => {
     const doc = state.apis.find(a => a.id === state.selected);
     if (!doc || doc.pending) return;
     const hasName = (doc.name || '').trim();
-    const displayName = hasName ? `"${hasName}"` : 'this API';
+    const displayName = hasName ? `"${hasName}"` : `this ${deleteLabel}`;
     const extra = state.dirty ? '\nUnsaved changes will be lost.' : '';
     const confirmMsg = `Delete ${displayName}? This action cannot be undone.${extra}`;
     if (!(typeof window !== 'undefined' && window.confirm && window.confirm(confirmMsg))) return;
@@ -188,7 +245,7 @@ async () => {
     state.deleting = true;
     markDirty(state.dirty);
     try {
-      const resp = await fetch(`/builder/apis/${doc.id}`, { method: 'DELETE' });
+      const resp = await fetch(apiUrl(`/apis/${doc.id}`), { method: 'DELETE' });
       if (!resp.ok) throw new Error('delete');
       state.apis = state.apis.filter(a => a.id !== doc.id);
       state.selected = null;
@@ -208,12 +265,265 @@ async () => {
     } catch (err) {
       console.error(err);
       if (typeof window !== 'undefined' && window.alert) {
-        window.alert('Failed to delete API. Please try again.');
+        window.alert(`Failed to delete ${deleteLabel}. Please try again.`);
       }
     } finally {
       state.deleting = false;
       markDirty(state.dirty);
     }
+  }
+
+  function setCollectorStatus(text, isError=false) {
+    if (!collectorStatus) return;
+    collectorStatus.textContent = text || '';
+    collectorStatus.style.color = isError ? '#b91c1c' : '#4b5563';
+  }
+
+  function selectedTemplateId() {
+    if (!config.enableCollectorControls) return '';
+    return String((collectorTemplateSelect && collectorTemplateSelect.value) || state.selectedTemplate || '').trim();
+  }
+
+  function selectedTemplateName() {
+    const id = selectedTemplateId();
+    const template = state.templates.find((item) => String(item.id) === id);
+    return template ? (template.name || 'Template') : '';
+  }
+
+  function selectedTemplateDoc() {
+    const id = selectedTemplateId();
+    return state.templates.find((item) => String(item.id) === id) || null;
+  }
+
+  function setCollectorActionState() {
+    if (!config.enableCollectorControls) return;
+    const hasTemplate = !!selectedTemplateId();
+    if (btnNew) btnNew.disabled = !hasTemplate;
+    if (btnGenerateRects) btnGenerateRects.disabled = !hasTemplate || !state.selected || state.evaluating || String(state.selected).startsWith('pending-');
+    if (collectorTemplateButton) collectorTemplateButton.disabled = !state.templates.length;
+  }
+
+  function upsertApiDocs(docs) {
+    for (const doc of docs || []) {
+      if (!doc || !doc.id) continue;
+      syncBaseAccess(doc);
+      const idx = state.apis.findIndex((item) => item.id === doc.id);
+      if (idx >= 0) state.apis.splice(idx, 1, doc);
+      else state.apis.unshift(doc);
+    }
+  }
+
+  function extractApiDocs(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.items)) return payload.items;
+    if (payload && payload.id) return [payload];
+    return [];
+  }
+
+  function closeTemplateMenu() {
+    if (collectorTemplateMenu) collectorTemplateMenu.classList.add('hidden');
+    if (collectorTemplateButton) collectorTemplateButton.setAttribute('aria-expanded', 'false');
+  }
+
+  function updateTemplateButton() {
+    if (!collectorTemplateButton) return;
+    const template = selectedTemplateDoc();
+    if (collectorTemplateLabel) collectorTemplateLabel.textContent = template ? `Template: ${template.name || 'Untitled template'}` : 'Template';
+    if (collectorTemplateThumb) {
+      if (template && template.image_url) {
+        collectorTemplateThumb.src = template.image_url;
+        collectorTemplateThumb.style.display = 'block';
+      } else {
+        collectorTemplateThumb.removeAttribute('src');
+        collectorTemplateThumb.style.display = 'none';
+      }
+    }
+  }
+
+  async function switchCollectorTemplate(nextTemplateId) {
+    const nextId = String(nextTemplateId || '').trim();
+    if (!nextId || nextId === state.selectedTemplate) {
+      closeTemplateMenu();
+      return;
+    }
+    if (state.dirty) {
+      if (confirm('You have unsaved changes. Save before switching templates?')) {
+        const ok = await doSave();
+        if (!ok) {
+          if (collectorTemplateSelect) collectorTemplateSelect.value = state.selectedTemplate || '';
+          closeTemplateMenu();
+          return;
+        }
+      } else {
+        markDirty(false);
+      }
+    }
+    state.selectedTemplate = nextId;
+    if (collectorTemplateSelect) collectorTemplateSelect.value = state.selectedTemplate;
+    if (collectorTemplateMenu) {
+      for (const item of collectorTemplateMenu.querySelectorAll('.template-menu-item')) {
+        item.classList.toggle('active', item.dataset.templateId === state.selectedTemplate);
+      }
+    }
+    try { window.localStorage.setItem('data-collector-template-id', state.selectedTemplate); } catch {}
+    state.selected = null;
+    state.rects = [];
+    state.img.naturalW = 0;
+    state.img.naturalH = 0;
+    clearSelection({ skipRender: true });
+    renderRects();
+    if (stage) stage.style.display = 'none';
+    if (img) img.removeAttribute('src');
+    if (hint) hint.style.display = 'block';
+    if (titleInp) titleInp.value = '';
+    updateEndpoint(null);
+    setCollectorStatus('');
+    updateTemplateButton();
+    closeTemplateMenu();
+    await fetchAll();
+    setCollectorActionState();
+  }
+
+  function renderTemplateSelect() {
+    if (!collectorTemplateSelect) return;
+    collectorTemplateSelect.innerHTML = '';
+    if (collectorTemplateMenu) collectorTemplateMenu.innerHTML = '';
+    if (!state.templates.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No templates';
+      collectorTemplateSelect.appendChild(option);
+      collectorTemplateSelect.disabled = true;
+      state.selectedTemplate = null;
+      if (collectorTemplateLabel) collectorTemplateLabel.textContent = 'No templates';
+      if (collectorTemplateThumb) {
+        collectorTemplateThumb.removeAttribute('src');
+        collectorTemplateThumb.style.display = 'none';
+      }
+      setCollectorStatus('Create a Builder template first.', true);
+      setCollectorActionState();
+      return;
+    }
+
+    collectorTemplateSelect.disabled = false;
+    for (const template of state.templates) {
+      const option = document.createElement('option');
+      option.value = String(template.id || '');
+      option.textContent = template.name || 'Untitled template';
+      collectorTemplateSelect.appendChild(option);
+
+      if (collectorTemplateMenu) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'template-menu-item';
+        item.dataset.templateId = String(template.id || '');
+        const thumb = document.createElement('span');
+        thumb.className = 'template-thumb';
+        const thumbImg = document.createElement('img');
+        thumbImg.alt = '';
+        if (template.image_url) thumbImg.src = template.image_url;
+        thumb.appendChild(thumbImg);
+        const title = document.createElement('span');
+        title.className = 'template-menu-title';
+        title.textContent = template.name || 'Untitled template';
+        item.appendChild(thumb);
+        item.appendChild(title);
+        item.onclick = () => { switchCollectorTemplate(template.id); };
+        collectorTemplateMenu.appendChild(item);
+      }
+    }
+    const remembered = (() => {
+      try { return window.localStorage.getItem('data-collector-template-id') || ''; } catch { return ''; }
+    })();
+    const current = state.templates.find((item) => String(item.id) === String(state.selectedTemplate));
+    const stored = state.templates.find((item) => String(item.id) === remembered);
+    const selected = current || stored || state.templates[0];
+    state.selectedTemplate = String(selected.id || '');
+    collectorTemplateSelect.value = state.selectedTemplate;
+    if (collectorTemplateMenu) {
+      for (const item of collectorTemplateMenu.querySelectorAll('.template-menu-item')) {
+        item.classList.toggle('active', item.dataset.templateId === state.selectedTemplate);
+      }
+    }
+    updateTemplateButton();
+    setCollectorStatus('');
+    setCollectorActionState();
+  }
+
+  async function fetchTemplates() {
+    if (!config.enableCollectorControls) return;
+    try {
+      const resp = await fetch(apiUrl('/templates'));
+      if (!resp.ok) throw new Error('templates');
+      const payload = await resp.json();
+      state.templates = Array.isArray(payload) ? payload : [];
+    } catch (err) {
+      console.error(err);
+      state.templates = [];
+      setCollectorStatus('Failed to load templates', true);
+    }
+    renderTemplateSelect();
+  }
+
+  function listApisUrl() {
+    if (!config.enableCollectorControls) return apiUrl('/apis');
+    const templateId = selectedTemplateId();
+    if (!templateId) return '';
+    return `${apiUrl('/apis')}?template_id=${encodeURIComponent(templateId)}`;
+  }
+
+  async function evaluateCurrentItem({ silent=false } = {}) {
+    if (!config.enableCollectorControls) return;
+    if (!state.selected || String(state.selected).startsWith('pending-')) {
+      if (!silent) alert('Select or upload an image first.');
+      return;
+    }
+    if (!silent && state.dirty && !confirm('Evaluate will replace unsaved rectangle edits. Continue?')) return;
+    state.evaluating = true;
+    setCollectorActionState();
+    setCollectorStatus('Evaluating...');
+    try {
+      const resp = await fetch(apiUrl(`/apis/${state.selected}/evaluate`), { method: 'POST' });
+      if (!resp.ok) {
+        let detail = '';
+        try {
+          const payload = await resp.json();
+          detail = payload && payload.detail ? String(payload.detail) : '';
+        } catch {}
+        throw new Error(detail || 'evaluate');
+      }
+      const doc = await resp.json();
+      upsertApiDocs([doc]);
+      await loadApi(doc.id);
+      const evaluation = doc.evaluation || {};
+      const score = Number(evaluation.confidence_score);
+      const suffix = Number.isFinite(score) ? ` (${Math.round(score * 100)}%)` : '';
+      const message = evaluation.success === false
+        ? (evaluation.message || `Evaluation did not find ${selectedTemplateName() || 'the template'}`)
+        : `Evaluated${suffix}`;
+      setCollectorStatus(message, evaluation.success === false);
+    } catch (err) {
+      console.error(err);
+      setCollectorStatus('Evaluation failed', true);
+      if (!silent) alert(`Failed to evaluate image${err && err.message && err.message !== 'evaluate' ? `: ${err.message}` : '.'}`);
+    } finally {
+      state.evaluating = false;
+      setCollectorActionState();
+    }
+  }
+
+  function clearAllRectangles() {
+    if (!config.enableCollectorControls) return;
+    if (!state.rects.length) {
+      setCollectorStatus('No rectangles to clear');
+      return;
+    }
+    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+    state.rects = [];
+    clearSelection({ skipRender: true });
+    renderRects();
+    markDirty(true);
+    setCollectorStatus('Rectangles cleared');
   }
 
   async function doSave(){
@@ -250,7 +560,7 @@ async () => {
           noise.push({ ...px });
         }
       }
-      const r = await fetch(`/builder/apis/${state.selected}`,{
+      const r = await fetch(apiUrl(`/apis/${state.selected}`),{
         method:'PUT', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           name: titleInp.value || 'Untitled API',
@@ -281,6 +591,23 @@ async () => {
   if (btnUndo) btnUndo.onclick = () => undo();
   if (btnRedo) btnRedo.onclick = () => redo();
   if (btnDelete) btnDelete.onclick = () => { deleteSelectedApi(); };
+  if (btnGenerateRects) btnGenerateRects.onclick = () => { evaluateCurrentItem(); };
+  if (btnClearRects) btnClearRects.onclick = () => { clearAllRectangles(); };
+  if (collectorTemplateButton) {
+    collectorTemplateButton.onclick = (ev) => {
+      ev.stopPropagation();
+      if (!collectorTemplateMenu || !state.templates.length) return;
+      const isHidden = collectorTemplateMenu.classList.toggle('hidden');
+      collectorTemplateButton.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
+    };
+  }
+  if (collectorTemplateSelect) {
+    collectorTemplateSelect.onchange = async () => { await switchCollectorTemplate(collectorTemplateSelect.value); };
+  }
+  document.addEventListener('click', (ev) => {
+    if (!collectorTemplatePicker || !collectorTemplateMenu) return;
+    if (!collectorTemplatePicker.contains(ev.target)) closeTemplateMenu();
+  });
   window.addEventListener('keydown', (e) => {
     const z = (e.key === 'z' || e.key === 'Z');
     const y = (e.key === 'y' || e.key === 'Y');
@@ -484,7 +811,15 @@ async () => {
 
   async function fetchAll() {
     try {
-      const r = await fetch('/builder/apis');
+      const url = listApisUrl();
+      if (!url) {
+        state.apis = [];
+        state.loaded = true;
+        renderList();
+        updateEndpoint(null);
+        return;
+      }
+      const r = await fetch(url);
       const j = await r.json();
       state.apis = Array.isArray(j) ? j : [];
       state.apis.forEach(syncBaseAccess);
@@ -497,6 +832,11 @@ async () => {
       updateEndpoint(current);
     } else {
       updateEndpoint(null);
+    }
+    setCollectorActionState();
+    if (config.enableCollectorControls && !state.selected && !state.apis.length && selectedTemplateId()) {
+      if (titleInp) titleInp.value = '';
+      showCreate();
     }
   }
 
@@ -1161,10 +1501,40 @@ function renderSepsInspector(r){
     createArea.style.display = 'none';
     if (!state.selected) hint.style.display = 'block';
   }
+  function bindUploaderInput() {
+    const el = apiImageInput();
+    if (!el) return null;
+    if (config.enableCollectorControls) el.multiple = true;
+    if (!el._boundAutoCreate) {
+      el.addEventListener('change', () => { if (el.files && el.files[0]) createFromUpload(); });
+      el._boundAutoCreate = true;
+    }
+    return el;
+  }
+  function openCollectorFilePicker() {
+    const el = bindUploaderInput();
+    if (el) {
+      try {
+        el.click();
+        return true;
+      } catch {}
+    }
+    showCreate();
+    setCollectorStatus('Upload control is still loading. Click the drop area or try again.', true);
+    return false;
+  }
   btnNew.onclick = async () => {
+    if (config.enableCollectorControls && !selectedTemplateId()) {
+      alert('Choose a template before adding files.');
+      return;
+    }
     if (state.dirty) {
-      if (confirm('You have unsaved changes. Save before creating a new API?')) { const ok = await doSave(); if (!ok) return; }
+      if (confirm(`You have unsaved changes. Save before creating a new ${deleteLabel}?`)) { const ok = await doSave(); if (!ok) return; }
       else { markDirty(false); }
+    }
+    if (config.enableCollectorControls) {
+      openCollectorFilePicker();
+      return;
     }
     clearSelection({ skipRender: true });
     state.selected = null;
@@ -1183,8 +1553,14 @@ function renderSepsInspector(r){
   };
   const createFromUpload = async () => {
     const inp = apiImageInput();
-    if (!inp || !inp.files || !inp.files[0]) { alert('Please choose an image'); return; }
-    const file = inp.files[0];
+    const files = inp && inp.files ? Array.from(inp.files) : [];
+    if (!files.length) { alert('Please choose an image'); return; }
+    const templateId = selectedTemplateId();
+    if (config.enableCollectorControls && !templateId) {
+      alert('Choose a template before adding files.');
+      return;
+    }
+    const file = files[0];
     // Show instant local preview to avoid waiting for upload
     try {
       const localURL = URL.createObjectURL(file);
@@ -1203,49 +1579,75 @@ function renderSepsInspector(r){
 
     // Optimistically add a placeholder entry to the left panel
     const tmpId = 'pending-' + Math.random().toString(36).slice(2,8);
-    const placeholder = { id: tmpId, name: 'New API', image_url: img.src, rects: [] , pending: true };
+    const placeholderName = config.enableCollectorControls
+      ? (files.length === 1 ? (file.name || 'New image') : `${files.length} files`)
+      : 'New API';
+    const placeholder = { id: tmpId, name: placeholderName, image_url: img.src, rects: [] , pending: true };
     state.apis.unshift(placeholder); renderList();
     state.selected = tmpId;
+    setCollectorActionState();
 
-    const fd = new FormData(); fd.append('image', file);
+    const fd = new FormData();
+    let uploadUrl = apiUrl('/apis');
+    if (config.enableCollectorControls) {
+      files.forEach((item) => fd.append('images', item));
+      uploadUrl = `${uploadUrl}?template_id=${encodeURIComponent(templateId)}`;
+    } else {
+      fd.append('image', file);
+    }
     try {
-      const r = await fetch('/builder/apis', { method: 'POST', body: fd });
+      const r = await fetch(uploadUrl, { method: 'POST', body: fd });
       if (!r.ok) throw new Error('upload');
-      const doc = await r.json();
-      syncBaseAccess(doc);
-      // Replace placeholder with real doc
+      const payload = await r.json();
+      const docs = extractApiDocs(payload);
+      if (!docs.length) throw new Error('upload');
+      // Replace placeholder with returned docs
       const idx = state.apis.findIndex(a=>a.id===tmpId);
-      if (idx>=0) state.apis.splice(idx,1,doc); else state.apis.unshift(doc);
+      if (idx>=0) state.apis.splice(idx,1);
+      upsertApiDocs(docs);
       renderList();
-      // Keep current stage (local preview) to avoid recalibration; swap to signed URL silently
-      img.src = doc.image_url || img.src;
-      state.selected = doc.id;
-      titleInp.value = doc.name || titleInp.value || 'New API';
-      updateEndpoint(doc);
+      const doc = docs.find((item) => !item.duplicate) || docs[0];
       hideCreate();
-      // If user has drawn rectangles meanwhile, persist immediately
-      if (state.rects && state.rects.length) { await doSave(); }
-      markDirty(false);
+      await loadApi(doc.id);
       setMode('draw');
+      if (config.enableCollectorControls) {
+        const createdCount = Array.isArray(payload.created) ? payload.created.length : docs.filter((item) => !item.duplicate).length;
+        const duplicateCount = Array.isArray(payload.duplicates) ? payload.duplicates.length : docs.filter((item) => item.duplicate).length;
+        if (createdCount && duplicateCount) {
+          setCollectorStatus(`Added ${createdCount}; ${duplicateCount} already existed`);
+        } else if (duplicateCount) {
+          setCollectorStatus(duplicateCount === 1 ? 'File already exists for this template' : `${duplicateCount} files already exist for this template`);
+        } else {
+          setCollectorStatus(createdCount === 1 ? 'Added 1 file' : `Added ${createdCount} files`);
+        }
+      }
     } catch (e) {
-      alert('Failed to create API');
+      alert(`Failed to create ${deleteLabel}`);
       // Remove placeholder on failure
       const idx = state.apis.findIndex(a=>a.id===tmpId);
       if (idx>=0) { state.apis.splice(idx,1); renderList(); }
+    } finally {
+      try { inp.value = ''; } catch {}
+      setCollectorActionState();
     }
   };
 
   // Auto-create when a file is picked (no need to press Create)
   (function hookAutoCreate(){
-    try {
-      const el = document.getElementById('file-new-api-upload-up');
-      if (!el || el._boundAutoCreate) return;
-      el.addEventListener('change', () => { if (el.files && el.files[0]) createFromUpload(); });
-      el._boundAutoCreate = true;
-    } catch {}
+    let attempts = 0;
+    const tryBind = () => {
+      attempts += 1;
+      if (bindUploaderInput()) return;
+      if (attempts < 30) setTimeout(tryBind, 150);
+    };
+    tryBind();
   })();
 
   // Init
+  if (config.enableCollectorControls) {
+    await fetchTemplates();
+  }
   await fetchAll();
   clearSelection();
+  setCollectorActionState();
 }

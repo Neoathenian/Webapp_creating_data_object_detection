@@ -45,29 +45,25 @@
 .hdr-spacer { height: 56px;
  }
 
-/*************************/
-/* Google sign-in button */
-/*************************/
+/************************/
+/* Header action button */
+/************************/
 
-.google-btn-pill {
+.header-action-pill {
 	display: inline-flex;
 	align-items: center;
 	background-color: #fff;
 	border: 1px solid #dadce0;
 	border-radius: 999px;
 	height: 40px;
-	padding: 0 16px 0 0;
+	padding: 0 16px;
 }
-.google-btn-pill:hover {
+.header-action-pill:hover {
 	background-color: #f7f8f8;
 	box-shadow: 0 1px 2px rgba(0,0,0,.1);
 }
-.google-btn-pill, .google-btn-pill:hover { 
+.header-action-pill, .header-action-pill:hover { 
 	text-decoration: none !important;
-}
-.google-icon-wrapper { display: inline-flex;
-	align-items: center;
-	padding: 0 12px 0 16px;
 }
 
 /******************/

@@ -95,10 +95,18 @@ class Uploader:
              ondragover="event.preventDefault(); this.style.borderColor='#888';"
              ondragleave="this.style.borderColor='#bbb';"
              ondrop="event.preventDefault(); this.style.borderColor='#bbb';
-                     const f = event.dataTransfer.files && event.dataTransfer.files[0];
-                      if (f) {{ const dt = new DataTransfer(); dt.items.add(f);
-                               const inp = document.getElementById('{file_id}');
-                               inp.files = dt.files; const btn = document.getElementById('{btn_id}'); if (btn) btn.click(); }}">
+                     const files = event.dataTransfer.files;
+                     const inp = document.getElementById('{file_id}');
+                     if (files && files.length && inp) {{
+                       const dt = new DataTransfer();
+                       const allowMany = !!inp.multiple;
+                       for (let i = 0; i < files.length; i++) {{
+                         if (!allowMany && i > 0) break;
+                         dt.items.add(files[i]);
+                       }}
+                       inp.files = dt.files;
+                       inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                     }}">
           <div>
             <div style='line-height:1; display:flex; justify-content:center;'>
               <svg viewBox='0 0 24 24' width='40' height='40' fill='none'
