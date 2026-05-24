@@ -181,6 +181,24 @@ def _map_rects_template_to_scene(
         if x_scene > scene_w or y_scene > scene_h or (x_scene + w_scene) < 0 or (y_scene + h_scene) < 0:
             continue
 
+        x1 = x_scene
+        y1 = y_scene
+        x2 = x_scene + w_scene
+        y2 = y_scene + h_scene
+
+        x1 = max(0.0, min(float(scene_w), x1))
+        y1 = max(0.0, min(float(scene_h), y1))
+        x2 = max(0.0, min(float(scene_w), x2))
+        y2 = max(0.0, min(float(scene_h), y2))
+
+        w_scene = x2 - x1
+        h_scene = y2 - y1
+        if w_scene < 1.0 or h_scene < 1.0:
+            continue
+
+        x_scene = x1
+        y_scene = y1
+
         mapped.append(
             {
                 "id": rect.get("id") or rect.get("name") or "",

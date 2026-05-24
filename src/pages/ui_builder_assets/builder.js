@@ -959,6 +959,42 @@ async () => {
     return Number.isFinite(num) ? num : 0;
   }
 
+  function rectAabbPx(rect) {
+    const W = Math.max(1, state.img.naturalW || 1);
+    const H = Math.max(1, state.img.naturalH || 1);
+    const wPx = rect.w * W;
+    const hPx = rect.h * H;
+    const theta = rectThetaDeg(rect) * Math.PI / 180;
+    const cosA = Math.abs(Math.cos(theta));
+    const sinA = Math.abs(Math.sin(theta));
+    const aabbW = (wPx * cosA) + (hPx * sinA);
+    const aabbH = (wPx * sinA) + (hPx * cosA);
+    return { aabbW, aabbH, wPx, hPx, W, H };
+  }
+
+  function rectAnchorBoundsNormalized(rect) {
+    const { aabbW, aabbH, wPx, hPx, W, H } = rectAabbPx(rect);
+    const minX = (aabbW - wPx) / (2 * W);
+    const maxX = (W - ((aabbW + wPx) / 2)) / W;
+    const minY = (aabbH - hPx) / (2 * H);
+    const maxY = (H - ((aabbH + hPx) / 2)) / H;
+    return { minX, maxX, minY, maxY };
+  }
+
+  function rectVisualPx(rect) {
+    const { aabbW, aabbH, wPx, hPx, W, H } = rectAabbPx(rect);
+    const xPx = rect.x * W;
+    const yPx = rect.y * H;
+    return {
+      x: xPx + ((wPx - aabbW) / 2),
+      y: yPx + ((hPx - aabbH) / 2),
+      w: aabbW,
+      h: aabbH,
+      anchorW: wPx,
+      anchorH: hPx,
+    };
+  }
+
   // Track overlapping rectangle hit-testing so repeated clicks can cycle targets.
   const HIT_CYCLE_PRECISION = 1000;
   const hitCycle = { key: '', idx: 0 };
@@ -1025,21 +1061,25 @@ async () => {
     const W = state.img.naturalW;
     const H = state.img.naturalH;
     if (!W || !H) return false;
-    const curX = Math.round(rect.x * W);
-    const curY = Math.round(rect.y * H);
-    const widthPx = Math.max(1, Math.round(rect.w * W));
-    const heightPx = Math.max(1, Math.round(rect.h * H));
+    const vis = rectVisualPx(rect);
+    const curX = Math.round(vis.x);
+    const curY = Math.round(vis.y);
+    const widthPx = Math.max(1, Math.round(vis.w));
+    const heightPx = Math.max(1, Math.round(vis.h));
     const maxX = Math.max(0, W - widthPx);
     const maxY = Math.max(0, H - heightPx);
     const nextX = clamp(curX + dx, 0, maxX);
     const nextY = clamp(curY + dy, 0, maxY);
-    if (nextX === curX && nextY === curY) return false;
+    const shiftX = nextX - curX;
+    const shiftY = nextY - curY;
+    if (shiftX === 0 && shiftY === 0) return false;
     if (preview) return true;
-    rect.x = nextX / W;
-    rect.y = nextY / H;
+    rect.x = (rect.x * W + shiftX) / W;
+    rect.y = (rect.y * H + shiftY) / H;
     if (overlay.dataset.selected === rect.id) {
-      if (rectX) rectX.value = String(nextX);
-      if (rectY) rectY.value = String(nextY);
+      const nextVis = rectVisualPx(rect);
+      if (rectX) rectX.value = String(Math.round(nextVis.x));
+      if (rectY) rectY.value = String(Math.round(nextVis.y));
     }
     renderRects();
     return true;
@@ -1129,8 +1169,9 @@ async () => {
       if (rectReference) rectReference.checked = !!r.reference;
       if (rectNoise) rectNoise.checked = !!r.noise;
       setInspectorOpen(true);
-      rectX.value = Math.round(r.x * state.img.naturalW);
-      rectY.value = Math.round(r.y * state.img.naturalH);
+      const vis = rectVisualPx(r);
+      rectX.value = Math.round(vis.x);
+      rectY.value = Math.round(vis.y);
       rectW.value = Math.round(r.w * state.img.naturalW);
       rectH.value = Math.round(r.h * state.img.naturalH);
       if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
@@ -1332,6 +1373,14 @@ function renderSepsInspector(r){
       base.y = H ? yPx / Math.max(H, 1) : base.y;
       base.w = W ? wPx / Math.max(W, 1) : base.w;
       base.h = H ? hPx / Math.max(H, 1) : base.h;
+      if (W > 0 && H > 0) {
+        const minW = 1 / Math.max(W, 1);
+        const minH = 1 / Math.max(H, 1);
+        base.w = Math.max(minW, Math.min(1, base.w));
+        base.h = Math.max(minH, Math.min(1, base.h));
+        base.x = Math.max(0, Math.min(Math.max(0, 1 - base.w), base.x));
+        base.y = Math.max(0, Math.min(Math.max(0, 1 - base.h), base.y));
+      }
       base['θ'] = getNumber(raw['θ'], getNumber(raw.theta, getNumber(base['θ'], 0)));
       if (Array.isArray(raw.seps) && raw.seps.length) {
         const rectHeight = Math.max(hPx, 1);
@@ -1603,19 +1652,23 @@ function renderSepsInspector(r){
       if(!r) { moving = null; return; }
       const prevX = r.x, prevY = r.y;
       const dx = gx - moving.startX, dy = gy - moving.startY;
-      let nextX = percentClamp(moving.rx + dx);
-      let nextY = percentClamp(moving.ry + dy);
-      // clamp so rect stays inside
-      nextX = Math.min(nextX, 1 - r.w);
-      nextY = Math.min(nextY, 1 - r.h);
+      let nextX = moving.rx + dx;
+      let nextY = moving.ry + dy;
       if (!moving.changed && (Math.abs(nextX - prevX) > 0.0001 || Math.abs(nextY - prevY) > 0.0001)) {
         moving.changed = true;
       }
       r.x = nextX; r.y = nextY;
+      const { minX, maxX, minY, maxY } = rectAnchorBoundsNormalized(r);
+      if (maxX < minX) nextX = minX;
+      else nextX = clamp(nextX, minX, maxX);
+      if (maxY < minY) nextY = minY;
+      else nextY = clamp(nextY, minY, maxY);
+      r.x = nextX; r.y = nextY;
       renderRects();
       // update inspector fields
-      rectX.value = Math.round(r.x * state.img.naturalW);
-      rectY.value = Math.round(r.y * state.img.naturalH);
+      const vis = rectVisualPx(r);
+      rectX.value = Math.round(vis.x);
+      rectY.value = Math.round(vis.y);
       if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
       return;
     }
@@ -1642,9 +1695,15 @@ function renderSepsInspector(r){
         }
       }
       r.x = x; r.y = y; r.w = w; r.h = h;
+      const { minX, maxX, minY, maxY } = rectAnchorBoundsNormalized(r);
+      if (maxX < minX) r.x = minX;
+      else r.x = clamp(r.x, minX, maxX);
+      if (maxY < minY) r.y = minY;
+      else r.y = clamp(r.y, minY, maxY);
       renderRects();
-      rectX.value = Math.round(r.x * state.img.naturalW);
-      rectY.value = Math.round(r.y * state.img.naturalH);
+      const vis = rectVisualPx(r);
+      rectX.value = Math.round(vis.x);
+      rectY.value = Math.round(vis.y);
       rectW.value = Math.round(r.w * state.img.naturalW);
       rectH.value = Math.round(r.h * state.img.naturalH);
       if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
@@ -1755,11 +1814,25 @@ function renderSepsInspector(r){
     let x = +rectX.value || 0, y = +rectY.value || 0, w = +rectW.value || 1, h = +rectH.value || 1;
     const thetaInput = rectTheta ? Number(rectTheta.value) : 0;
     const theta = Number.isFinite(thetaInput) ? thetaInput : 0;
-    x = clamp(x, 0, W-1); y = clamp(y, 0, H-1);
-    w = clamp(w, 1, W - x); h = clamp(h, 1, H - y);
-    r.x = x / W; r.y = y / H; r.w = w / W; r.h = h / H;
+    w = clamp(w, 1, W);
+    h = clamp(h, 1, H);
+    const thetaRad = theta * Math.PI / 180;
+    const aabbW = Math.abs(w * Math.cos(thetaRad)) + Math.abs(h * Math.sin(thetaRad));
+    const aabbH = Math.abs(w * Math.sin(thetaRad)) + Math.abs(h * Math.cos(thetaRad));
+    x = clamp(x, 0, Math.max(0, W - aabbW));
+    y = clamp(y, 0, Math.max(0, H - aabbH));
+    const anchorX = x + ((aabbW - w) / 2);
+    const anchorY = y + ((aabbH - h) / 2);
+    r.x = anchorX / W;
+    r.y = anchorY / H;
+    r.w = w / W;
+    r.h = h / H;
     r['θ'] = theta;
-    rectX.value = Math.round(x); rectY.value = Math.round(y); rectW.value = Math.round(w); rectH.value = Math.round(h);
+    const vis = rectVisualPx(r);
+    rectX.value = Math.round(vis.x);
+    rectY.value = Math.round(vis.y);
+    rectW.value = Math.round(w);
+    rectH.value = Math.round(h);
     if (rectTheta) rectTheta.value = String(theta);
     renderRects(); markDirty(true);
   }
