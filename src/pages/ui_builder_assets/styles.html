@@ -309,6 +309,13 @@ button.toggle-python { display:inline-flex; align-items:center; gap:8px; padding
   .inspector input[type="text"], .inspector input[type="number"] {
     padding:8px; border:1px solid #d1d5db; border-radius:8px; width: 100%; box-sizing: border-box;
   }
+  .theta-edit { display:grid; grid-template-columns:minmax(0, 1fr) 54px; gap:6px; align-items:center; }
+  .theta-normalize-btn {
+    height:42px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#374151;
+    cursor:pointer; font-size:12px; line-height:1; padding:0; display:inline-flex; align-items:center; justify-content:center;
+  }
+  .theta-normalize-btn:hover { background:#f3f4f6; border-color:#9ca3af; }
+  .theta-normalize-btn:disabled { opacity:.45; cursor:not-allowed; background:#f9fafb; }
   .inspector input[type="checkbox"] { -webkit-appearance:none; appearance:none; margin:0; width:18px; height:18px; border:2px solid #2563eb; border-radius:4px; background:#fff; display:inline-grid; place-content:center; cursor:pointer; }
   .inspector input[type="checkbox"]::after { content:""; width:6px; height:10px; border-right:3px solid #fff; border-bottom:3px solid #fff; transform: rotate(45deg) scale(0); transition: transform .12s ease; }
   .inspector input[type="checkbox"]:checked { background:#2563eb; }

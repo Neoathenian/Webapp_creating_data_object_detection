@@ -76,6 +76,7 @@ class Rect(BaseModel):
     theta: float = Field(default=0.0, alias="θ")
     # Horizontal separators inside the rectangle (pixels from top)
     seps: List[int] = Field(default_factory=list)
+    manual: bool = False
 
     # Flag to control text extraction
     extract_text: bool = True
@@ -135,10 +136,6 @@ def _clean_rect(rect: Dict[str, Any]) -> Dict[str, Any]:
         theta_num = 0.0
     if not theta_num == theta_num:  # NaN guard
         theta_num = 0.0
-    while theta_num > 180.0:
-        theta_num -= 360.0
-    while theta_num <= -180.0:
-        theta_num += 360.0
     data["θ"] = float(theta_num)
     data.pop("theta", None)
     seps = []

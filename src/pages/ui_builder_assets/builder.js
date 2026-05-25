@@ -41,6 +41,9 @@ async () => {
     rects: [],
     mode: 'select',
     zoom: 1,
+    rotation: 0,
+    panX: 0,
+    panY: 0,
     img: { naturalW: 0, naturalH: 0 },
     dirty: false,
     loaded: false,
@@ -79,6 +82,7 @@ async () => {
   const rectW = document.getElementById('rect-w');
   const rectH = document.getElementById('rect-h');
   const rectTheta = document.getElementById('rect-theta');
+  const btnNormalizeTheta = document.getElementById('btn-normalize-theta');
   const btnDelRect = document.getElementById('btn-delete-rect');
   const inspector = document.getElementById('inspector');
   const center = document.getElementById('center');
@@ -90,6 +94,7 @@ async () => {
   const btnDelete = document.getElementById('btn-delete-api');
   const btnPrevImage = document.getElementById('btn-prev-image');
   const btnNextImage = document.getElementById('btn-next-image');
+  const btnRotateImage = document.getElementById('btn-rotate-image');
   const btnGenerateRects = document.getElementById('btn-generate-rects');
   const btnEvaluateAll = document.getElementById('btn-evaluate-all');
   const evaluateAllPopup = document.getElementById('evaluate-all-popup');
@@ -246,6 +251,7 @@ async () => {
   const history = { undo: [], redo: [] };
   const cloneRects = () => JSON.parse(JSON.stringify(state.rects||[]));
   let keyNudgeActive = false;
+  let rectClipboard = null;
   function pushHistory(){ history.undo.push(cloneRects()); history.redo.length = 0; }
   function applyRects(rects){ state.rects = JSON.parse(JSON.stringify(rects||[])); renderRects(); const cur = state.rects.find(x=>x.id===overlay.dataset.selected); try{ renderSepsInspector(cur); }catch{} markDirty(true); }
   function undo(){ if(!history.undo.length) return; history.redo.push(cloneRects()); const prev = history.undo.pop(); applyRects(prev); }
@@ -393,6 +399,7 @@ async () => {
     if (btnEvaluateAll) btnEvaluateAll.disabled = !hasTemplate || state.evaluating || !state.apis.some((item) => item && !item.pending && item.id);
     if (btnPrevImage) btnPrevImage.disabled = state.evaluating || currentIndex <= 0;
     if (btnNextImage) btnNextImage.disabled = state.evaluating || currentIndex < 0 || currentIndex >= navigable.length - 1;
+    updateRotateButtonState();
     if (collectorTemplateButton) collectorTemplateButton.disabled = !state.templates.length;
   }
 
@@ -773,6 +780,7 @@ async () => {
           'θ': rectThetaDeg(r),
           seps: Array.isArray(r.seps) ? r.seps.map(rel => Math.round(rel * Math.max(r.h * H, 1))) : [],
         };
+        if (r.manual === true) px.manual = true;
         rectLookup.set(px.id, px);
         return px;
       };
@@ -824,6 +832,7 @@ async () => {
   if (btnDelete) btnDelete.onclick = () => { deleteSelectedApi(); };
   if (btnPrevImage) btnPrevImage.onclick = async () => { await navigateSelectedImage(-1); };
   if (btnNextImage) btnNextImage.onclick = async () => { await navigateSelectedImage(1); };
+  if (btnRotateImage) btnRotateImage.onclick = () => { rotateImageClockwise(); };
   if (btnGenerateRects) btnGenerateRects.onclick = () => { evaluateCurrentItem(); };
   if (btnEvaluateAll) btnEvaluateAll.onclick = () => { openEvaluateAllPopup(); };
   if (btnEvaluateAllCancel) btnEvaluateAllCancel.onclick = () => { closeEvaluateAllPopup(); };
@@ -851,18 +860,33 @@ async () => {
   window.addEventListener('keydown', (e) => {
     const z = (e.key === 'z' || e.key === 'Z');
     const y = (e.key === 'y' || e.key === 'Y');
-    if ((e.ctrlKey || e.metaKey) && z) { e.preventDefault(); undo(); }
-    else if ((e.ctrlKey || e.metaKey) && y) { e.preventDefault(); redo(); }
+    const c = (e.key === 'c' || e.key === 'C');
+    const v = (e.key === 'v' || e.key === 'V');
+    const active = document.activeElement;
+    const shortcut = e.ctrlKey || e.metaKey;
+    const editingShortcutTarget = isEditingTarget(active);
+    if (shortcut && !e.altKey && !e.shiftKey && config.enableCollectorControls && !editingShortcutTarget && c) {
+      if (copySelectedRect()) e.preventDefault();
+      return;
+    }
+    if (shortcut && !e.altKey && !e.shiftKey && config.enableCollectorControls && !editingShortcutTarget && v) {
+      if (pasteRectClipboard()) e.preventDefault();
+      return;
+    }
+    if (shortcut && z) { e.preventDefault(); undo(); }
+    else if (shortcut && y) { e.preventDefault(); redo(); }
     else if (!e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-      if (state.mode !== 'select' || !state.selected) return;
+      if (!state.selected) return;
       const rectId = overlay.dataset.selected || '';
       if (!rectId) return;
-      const active = document.activeElement;
-      const tag = (active && active.tagName) ? active.tagName.toLowerCase() : '';
-      const isEditing = !!(active && (active.isContentEditable || ['input','textarea','select'].includes(tag)));
-      if (isEditing) return;
       const rect = state.rects.find(r => r.id === rectId);
-      if (!rect) return;
+      if (!rectCanUseKeyboardNudge(rect)) return;
+      const isZoomFocused = active === zoomRange;
+      const isEditing = isEditingTarget(active, { allowZoom: true });
+      if (isEditing) return;
+      if (isZoomFocused && zoomRange) {
+        try { zoomRange.blur(); } catch {}
+      }
       const step = e.shiftKey ? 10 : 1;
       let dx = 0, dy = 0;
       if (e.key === 'ArrowLeft') dx = -step;
@@ -953,6 +977,133 @@ async () => {
 
   function percentClamp(v) { return Math.max(0, Math.min(1, v)); }
 
+  function normalizedRotation(value = state.rotation) {
+    const raw = Number(value) || 0;
+    return ((Math.round(raw / 90) * 90) % 360 + 360) % 360;
+  }
+
+  function rotatedContentSize(zoom = state.zoom, rotation = state.rotation) {
+    const W = state.img.naturalW || 0;
+    const H = state.img.naturalH || 0;
+    const rot = normalizedRotation(rotation);
+    if (rot === 90 || rot === 270) {
+      return { w: H * zoom, h: W * zoom };
+    }
+    return { w: W * zoom, h: H * zoom };
+  }
+
+  function imagePxToWorkspacePoint(x, y, options = {}) {
+    const W = state.img.naturalW || 0;
+    const H = state.img.naturalH || 0;
+    const zoom = options.zoom ?? state.zoom ?? 1;
+    const panX = options.panX ?? state.panX ?? 0;
+    const panY = options.panY ?? state.panY ?? 0;
+    const rot = normalizedRotation(options.rotation ?? state.rotation);
+    if (rot === 90) return { x: panX + (H - y) * zoom, y: panY + x * zoom };
+    if (rot === 180) return { x: panX + (W - x) * zoom, y: panY + (H - y) * zoom };
+    if (rot === 270) return { x: panX + y * zoom, y: panY + (W - x) * zoom };
+    return { x: panX + x * zoom, y: panY + y * zoom };
+  }
+
+  function workspaceCoordsToImagePx(sx, sy, options = {}) {
+    const W = state.img.naturalW || 0;
+    const H = state.img.naturalH || 0;
+    const zoom = options.zoom ?? state.zoom ?? 1;
+    const panX = options.panX ?? state.panX ?? 0;
+    const panY = options.panY ?? state.panY ?? 0;
+    const rot = normalizedRotation(options.rotation ?? state.rotation);
+    const z = zoom || 1;
+    let x = 0;
+    let y = 0;
+    if (rot === 90) {
+      x = (sy - panY) / z;
+      y = H - ((sx - panX) / z);
+    } else if (rot === 180) {
+      x = W - ((sx - panX) / z);
+      y = H - ((sy - panY) / z);
+    } else if (rot === 270) {
+      x = W - ((sy - panY) / z);
+      y = (sx - panX) / z;
+    } else {
+      x = (sx - panX) / z;
+      y = (sy - panY) / z;
+    }
+    if (options.clamp === false) return { x, y };
+    return { x: clamp(x, 0, W), y: clamp(y, 0, H) };
+  }
+
+  function eventImagePoint(ev, options = {}) {
+    const rect = workspace.getBoundingClientRect();
+    return workspaceCoordsToImagePx(ev.clientX - rect.left, ev.clientY - rect.top, options);
+  }
+
+  function eventImageNorm(ev) {
+    const pt = eventImagePoint(ev);
+    return {
+      gx: percentClamp(pt.x / Math.max(1, state.img.naturalW)),
+      gy: percentClamp(pt.y / Math.max(1, state.img.naturalH)),
+    };
+  }
+
+  function isEditingTarget(el, { allowZoom = false } = {}) {
+    if (!el) return false;
+    if (allowZoom && el === zoomRange) return false;
+    const tag = el.tagName ? el.tagName.toLowerCase() : '';
+    return !!(el.isContentEditable || ['input','textarea','select'].includes(tag));
+  }
+
+  function updateRotateButtonState() {
+    if (!btnRotateImage) return;
+    btnRotateImage.disabled = !state.img.naturalW || !state.img.naturalH || state.evaluating;
+    btnRotateImage.title = `Rotate image 90 deg clockwise (current ${normalizedRotation()} deg)`;
+  }
+
+  function rotateImageClockwise() {
+    if (!state.img.naturalW || !state.img.naturalH) return;
+    state.rotation = (normalizedRotation() + 90) % 360;
+    centerStage();
+    renderRects();
+    updateRotateButtonState();
+  }
+
+  function updateThetaRotateButton(rect = selectedRectData()) {
+    if (!btnNormalizeTheta) return;
+    btnNormalizeTheta.disabled = !rect;
+    btnNormalizeTheta.title = rect
+      ? `Rotate coordinates to ${Number((rectThetaDeg(rect) + 90).toFixed(2))} deg`
+      : 'Select a rectangle to rotate coordinates';
+  }
+
+  function rotateSelectedRectTheta90() {
+    const r = selectedRectData();
+    if (!r) return false;
+    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+    const W = Math.max(1, state.img.naturalW || 1);
+    const H = Math.max(1, state.img.naturalH || 1);
+    const oldWPx = r.w * W;
+    const oldHPx = r.h * H;
+    const cxPx = (r.x * W) + oldWPx / 2;
+    const cyPx = (r.y * H) + oldHPx / 2;
+    const nextWPx = oldHPx;
+    const nextHPx = oldWPx;
+    r.w = nextWPx / W;
+    r.h = nextHPx / H;
+    r.x = (cxPx - nextWPx / 2) / W;
+    r.y = (cyPx - nextHPx / 2) / H;
+    r['θ'] = Number((rectThetaDeg(r) + 90).toFixed(6));
+
+    const vis = rectVisualPx(r);
+    if (rectX) rectX.value = Math.round(vis.x);
+    if (rectY) rectY.value = Math.round(vis.y);
+    if (rectW) rectW.value = Math.round(r.w * state.img.naturalW);
+    if (rectH) rectH.value = Math.round(r.h * state.img.naturalH);
+    if (rectTheta) rectTheta.value = String(Number(r['θ'].toFixed(2)));
+    renderRects();
+    updateThetaRotateButton(r);
+    markDirty(true);
+    return true;
+  }
+
   function rectThetaDeg(rect) {
     const raw = rect ? (rect['θ'] ?? rect.theta ?? 0) : 0;
     const num = Number(raw);
@@ -993,6 +1144,68 @@ async () => {
       anchorW: wPx,
       anchorH: hPx,
     };
+  }
+
+  function rectIsUserCreated(rect) {
+    const id = String((rect && rect.id) || '');
+    return !!(rect && (rect.manual === true || rect.source === 'manual' || (id.startsWith('r-') && !id.startsWith('auto-'))));
+  }
+
+  function rectCanUseDrawModeTools(rect) {
+    return state.mode !== 'draw' || rectIsUserCreated(rect);
+  }
+
+  function rectCanUseKeyboardNudge(rect) {
+    if (!rect) return false;
+    if (state.mode === 'select') return true;
+    if (state.mode === 'draw') return rectIsUserCreated(rect);
+    return false;
+  }
+
+  function selectedRectData() {
+    const id = overlay.dataset.selected || '';
+    return id ? state.rects.find((rect) => rect && rect.id === id) || null : null;
+  }
+
+  function makeRectId() {
+    return 'r-' + Math.random().toString(36).slice(2, 9);
+  }
+
+  function copySelectedRect() {
+    if (!config.enableCollectorControls) return false;
+    const rect = selectedRectData();
+    if (!rect) return false;
+    rectClipboard = JSON.parse(JSON.stringify(rect));
+    return true;
+  }
+
+  function pasteRectClipboard() {
+    if (!config.enableCollectorControls || !rectClipboard || !state.selected) return false;
+    if (!state.img.naturalW || !state.img.naturalH) return false;
+    const next = JSON.parse(JSON.stringify(rectClipboard));
+    next.id = makeRectId();
+    next.name = '';
+    next.manual = true;
+    delete next.source;
+
+    const dx = Math.max(1, Math.round(state.img.naturalW * 0.01)) / Math.max(1, state.img.naturalW);
+    const dy = Math.max(1, Math.round(state.img.naturalH * 0.01)) / Math.max(1, state.img.naturalH);
+    next.x = Number(next.x) || 0;
+    next.y = Number(next.y) || 0;
+    next.w = Math.max(1 / Math.max(1, state.img.naturalW), Number(next.w) || 0);
+    next.h = Math.max(1 / Math.max(1, state.img.naturalH), Number(next.h) || 0);
+    next.x += dx;
+    next.y += dy;
+    const bounds = rectAnchorBoundsNormalized(next);
+    next.x = bounds.maxX < bounds.minX ? bounds.minX : clamp(next.x, bounds.minX, bounds.maxX);
+    next.y = bounds.maxY < bounds.minY ? bounds.minY : clamp(next.y, bounds.minY, bounds.maxY);
+
+    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+    state.rects.push(next);
+    rectClipboard = JSON.parse(JSON.stringify(next));
+    selectRect(next.id);
+    markDirty(true);
+    return true;
   }
 
   // Track overlapping rectangle hit-testing so repeated clicks can cycle targets.
@@ -1152,6 +1365,7 @@ async () => {
     overlay.dataset.selected = '';
     keyNudgeActive = false;
     refreshRectNameControl('');
+    updateThetaRotateButton(null);
     setInspectorOpen(false);
     if (!skipRender) renderRects();
   }
@@ -1175,6 +1389,7 @@ async () => {
       rectW.value = Math.round(r.w * state.img.naturalW);
       rectH.value = Math.round(r.h * state.img.naturalH);
       if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
+      updateThetaRotateButton(r);
       try { renderSepsInspector(r); } catch {}
     } else {
       clearSelection({ skipRender: true });
@@ -1191,14 +1406,28 @@ async () => {
 
   function applyTransform(){
     const st = document.getElementById('stage');
-    st.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    if (!st) return;
+    const W = state.img.naturalW || 0;
+    const H = state.img.naturalH || 0;
+    const z = state.zoom || 1;
+    const rot = normalizedRotation();
+    let a = z, b = 0, c = 0, d = z, e = state.panX || 0, f = state.panY || 0;
+    if (rot === 90) {
+      a = 0; b = z; c = -z; d = 0; e = (state.panX || 0) + H * z; f = state.panY || 0;
+    } else if (rot === 180) {
+      a = -z; b = 0; c = 0; d = -z; e = (state.panX || 0) + W * z; f = (state.panY || 0) + H * z;
+    } else if (rot === 270) {
+      a = 0; b = -z; c = z; d = 0; e = state.panX || 0; f = (state.panY || 0) + W * z;
+    }
+    st.style.transform = `matrix(${a}, ${b}, ${c}, ${d}, ${e}, ${f})`;
   }
 
   function centerStage() {
     const wrap = document.getElementById('workspace');
     const w = wrap.clientWidth, h = wrap.clientHeight;
-    const sw = state.img.naturalW * state.zoom;
-    const sh = state.img.naturalH * state.zoom;
+    const size = rotatedContentSize();
+    const sw = size.w;
+    const sh = size.h;
     state.panX = Math.floor((w - sw) / 2);
     state.panY = Math.floor((h - sh) / 2);
     applyTransform();
@@ -1225,17 +1454,15 @@ function renderRects() {
       el.onclick = (ev) => {
         ev.stopPropagation();
         if (state.mode === 'select') return;
+        if (!rectCanUseDrawModeTools(r)) return;
         if (!state.img.naturalW || !state.img.naturalH) {
           selectRect(r.id);
           return;
         }
-        const box = img.getBoundingClientRect();
-        const px = ev.clientX - box.left;
-        const py = ev.clientY - box.top;
-        const gx = percentClamp(px / Math.max(1, state.img.naturalW * state.zoom));
-        const gy = percentClamp(py / Math.max(1, state.img.naturalH * state.zoom));
+        const { gx, gy } = eventImageNorm(ev);
         const hits = hitTestRectsAt(gx, gy);
-        const picked = pickRectFromHits(hits, gx, gy);
+        const selectableHits = state.mode === 'draw' ? hits.filter((hit) => rectIsUserCreated(hit.rect)) : hits;
+        const picked = pickRectFromHits(selectableHits, gx, gy);
         const target = picked || r;
         selectRect(target.id);
       };
@@ -1248,7 +1475,7 @@ function renderRects() {
         el.appendChild(s);
       }
       // Add resize handles if selected
-      if (overlay.dataset.selected === r.id) {
+      if (overlay.dataset.selected === r.id && rectCanUseDrawModeTools(r)) {
         const cursors = { nw:'nwse-resize', n:'ns-resize', ne:'nesw-resize', e:'ew-resize', se:'nwse-resize', s:'ns-resize', sw:'nesw-resize', w:'ew-resize' };
         const positions = ['nw','n','ne','e','se','s','sw','w'];
         for (const pos of positions) {
@@ -1369,6 +1596,7 @@ function renderSepsInspector(r){
         noise: false,
       };
       base.name = (raw.name ?? base.name ?? '') || '';
+      base.manual = raw.manual === true || raw.source === 'manual' || base.manual === true || (id.startsWith('r-') && !id.startsWith('auto-'));
       base.x = W ? xPx / Math.max(W, 1) : base.x;
       base.y = H ? yPx / Math.max(H, 1) : base.y;
       base.w = W ? wPx / Math.max(W, 1) : base.w;
@@ -1408,7 +1636,8 @@ function renderSepsInspector(r){
       try {
         const wrap = document.getElementById('workspace');
         const pad = 24;
-        const fit = Math.min( (wrap.clientWidth - pad) / W, (wrap.clientHeight - pad) / H ) || 1;
+        const size = rotatedContentSize(1);
+        const fit = Math.min( (wrap.clientWidth - pad) / Math.max(1, size.w), (wrap.clientHeight - pad) / Math.max(1, size.h) ) || 1;
         const pct = Math.max(0.2, Math.min(3, fit));
         state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
       } catch {}
@@ -1429,7 +1658,8 @@ function renderSepsInspector(r){
       try {
         const wrap = document.getElementById('workspace');
         const pad = 24;
-        const fitZ = Math.min( (wrap.clientWidth - pad) / state.img.naturalW, (wrap.clientHeight - pad) / state.img.naturalH ) || 1;
+        const size = rotatedContentSize(1);
+        const fitZ = Math.min( (wrap.clientWidth - pad) / Math.max(1, size.w), (wrap.clientHeight - pad) / Math.max(1, size.h) ) || 1;
         const pct = Math.max(0.2, Math.min(3, fitZ));
         state.zoom = pct; zoomRange.value = String(Math.round(pct * 100)); zoomLabel.textContent = `${Math.round(pct*100)}%`;
       } catch {}
@@ -1458,12 +1688,11 @@ function renderSepsInspector(r){
     const rect = workspace.getBoundingClientRect();
     const px = (anchorX == null ? rect.width/2 : anchorX);
     const py = (anchorY == null ? rect.height/2 : anchorY);
-    // Keep the point under the cursor stable while zooming
-    const ix = (px - state.panX) / (state.zoom || 1);
-    const iy = (py - state.panY) / (state.zoom || 1);
+    const imagePoint = workspaceCoordsToImagePx(px, py, { clamp: false });
     state.zoom = newZoom;
-    state.panX = Math.floor(px - ix * state.zoom);
-    state.panY = Math.floor(py - iy * state.zoom);
+    const nextPoint = imagePxToWorkspacePoint(imagePoint.x, imagePoint.y, { zoom: state.zoom, panX: 0, panY: 0 });
+    state.panX = Math.floor(px - nextPoint.x);
+    state.panY = Math.floor(py - nextPoint.y);
     applyTransform();
     updateZoomUI();
     renderRects();
@@ -1539,17 +1768,13 @@ function renderSepsInspector(r){
   });
   // Double-click on a rectangle to start moving it (even in draw mode)
   overlay.addEventListener('dblclick', (ev) => {
-    const box = img.getBoundingClientRect();
-    const px = ev.clientX - box.left;
-    const py = ev.clientY - box.top;
-    const denomX = Math.max(1, state.img.naturalW * state.zoom);
-    const denomY = Math.max(1, state.img.naturalH * state.zoom);
-    const gx = percentClamp(px / denomX);
-    const gy = percentClamp(py / denomY);
+    const { gx, gy } = eventImageNorm(ev);
     const hits = hitTestRectsAt(gx, gy);
-    const picked = pickRectFromHits(hits, gx, gy, { advance: false });
+    const selectableHits = state.mode === 'draw' ? hits.filter((hit) => rectIsUserCreated(hit.rect)) : hits;
+    const picked = pickRectFromHits(selectableHits, gx, gy, { advance: false });
     const fallbackEl = ev.target.closest && ev.target.closest('.rect');
-    const fallback = fallbackEl ? state.rects.find(x => x.id === fallbackEl.dataset.id) : null;
+    const fallbackCandidate = fallbackEl ? state.rects.find(x => x.id === fallbackEl.dataset.id) : null;
+    const fallback = rectCanUseDrawModeTools(fallbackCandidate) ? fallbackCandidate : null;
     const r = picked || fallback;
     if (!r) return;
     const id = r.id;
@@ -1559,13 +1784,7 @@ function renderSepsInspector(r){
     ev.preventDefault(); ev.stopPropagation();
   });
   overlay.addEventListener('mousedown', (ev) => {
-    const box = img.getBoundingClientRect();
-    const px = ev.clientX - box.left;
-    const py = ev.clientY - box.top;
-    const denomX = Math.max(1, state.img.naturalW * state.zoom);
-    const denomY = Math.max(1, state.img.naturalH * state.zoom);
-    const gx = percentClamp(px / denomX);
-    const gy = percentClamp(py / denomY);
+    const { gx, gy } = eventImageNorm(ev);
     const hits = hitTestRectsAt(gx, gy);
     const h = ev.target.closest ? ev.target.closest('.handle') : null;
     const sep = ev.target.closest ? ev.target.closest('.sep-line') : null;
@@ -1581,6 +1800,17 @@ function renderSepsInspector(r){
           const el = overlay.querySelector(`.rect[data-id="${picked.id}"]`);
           if (el) rectEl = el;
         } else {
+          rectData = null;
+          rectEl = null;
+        }
+      } else if (state.mode === 'draw') {
+        const selectableHits = hits.filter((hit) => rectIsUserCreated(hit.rect));
+        const picked = pickRectFromHits(selectableHits, gx, gy);
+        if (picked) {
+          rectData = picked;
+          const el = overlay.querySelector(`.rect[data-id="${picked.id}"]`);
+          if (el) rectEl = el;
+        } else if (rectData && !rectIsUserCreated(rectData)) {
           rectData = null;
           rectEl = null;
         }
@@ -1606,13 +1836,14 @@ function renderSepsInspector(r){
       ev.preventDefault(); ev.stopPropagation(); return;
     }
     if (h && rectData) {
+      if (!rectCanUseDrawModeTools(rectData)) return;
       try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
       const r = rectData;
       const id = r.id;
       resizing = { id, pos: h.dataset.pos, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
       ev.preventDefault(); ev.stopPropagation(); return;
     }
-    if (state.mode === 'select' && rectData) {
+    if ((state.mode === 'select' || state.mode === 'draw') && rectData && rectCanUseDrawModeTools(rectData)) {
       try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
       const r = rectData;
       const id = r.id;
@@ -1628,10 +1859,7 @@ function renderSepsInspector(r){
     ev.preventDefault(); ev.stopPropagation();
   });
   window.addEventListener('mousemove', (ev) => {
-    const box = img.getBoundingClientRect();
-    const px = ev.clientX - box.left; const py = ev.clientY - box.top;
-    const gx = percentClamp(px / (state.img.naturalW * state.zoom));
-    const gy = percentClamp(py / (state.img.naturalH * state.zoom));
+    const { gx, gy } = eventImageNorm(ev);
     if (drawing) {
       const x = Math.min(drawing.startX, gx), y = Math.min(drawing.startY, gy);
       const w = Math.abs(gx - drawing.startX), h = Math.abs(gy - drawing.startY);
@@ -1712,16 +1940,13 @@ function renderSepsInspector(r){
   });
   window.addEventListener('mouseup', (ev) => {
     if (drawing) {
-      const box = img.getBoundingClientRect();
-      const px = ev.clientX - box.left; const py = ev.clientY - box.top;
-      const x2 = percentClamp(px / (state.img.naturalW * state.zoom));
-      const y2 = percentClamp(py / (state.img.naturalH * state.zoom));
+      const { gx: x2, gy: y2 } = eventImageNorm(ev);
       const x = Math.min(drawing.startX, x2), y = Math.min(drawing.startY, y2);
       const w = Math.abs(x2 - drawing.startX), h = Math.abs(y2 - drawing.startY);
       if (w > 0.002 && h > 0.002) {
         try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
-        const id = 'r-' + Math.random().toString(36).slice(2, 9);
-        const rect = { id, name: '', x, y, w, h, extract_text: true, reference: false, noise: false, 'θ': 0 };
+        const id = makeRectId();
+        const rect = { id, name: '', x, y, w, h, extract_text: true, reference: false, noise: false, manual: true, 'θ': 0 };
         state.rects.push(rect);
         selectRect(id);
         markDirty(true);
@@ -1750,13 +1975,7 @@ function renderSepsInspector(r){
     const rectEl = ev.target.closest && ev.target.closest('.rect');
     if (ev.shiftKey) {
       if (!state.img.naturalW || !state.img.naturalH) return;
-      const box = img.getBoundingClientRect();
-      const px = ev.clientX - box.left;
-      const py = ev.clientY - box.top;
-      const denomX = Math.max(1, state.img.naturalW * state.zoom);
-      const denomY = Math.max(1, state.img.naturalH * state.zoom);
-      const gx = percentClamp(px / denomX);
-      const gy = percentClamp(py / denomY);
+      const { gx, gy } = eventImageNorm(ev);
       const hits = hitTestRectsAt(gx, gy);
       const picked = pickRectFromHits(hits, gx, gy, { advance: false });
       const fallback = rectEl ? state.rects.find(x => x.id === rectEl.dataset.id) : null;
@@ -1837,7 +2056,8 @@ function renderSepsInspector(r){
     renderRects(); markDirty(true);
   }
   rectX.onchange = rectY.onchange = rectW.onchange = rectH.onchange = applyRectEdits;
-  if (rectTheta) rectTheta.onchange = applyRectEdits;
+  if (rectTheta) rectTheta.onchange = () => { applyRectEdits(); updateThetaRotateButton(); };
+  if (btnNormalizeTheta) btnNormalizeTheta.onclick = () => { rotateSelectedRectTheta90(); };
   btnDelRect.onclick = () => {
     try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
     const id = overlay.dataset.selected || '';
