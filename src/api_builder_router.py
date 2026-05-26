@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import uuid
 from datetime import datetime
@@ -134,7 +135,12 @@ def _clean_rect(rect: Dict[str, Any]) -> Dict[str, Any]:
         theta_num = float(theta_val)
     except (TypeError, ValueError):
         theta_num = 0.0
-    if not theta_num == theta_num:  # NaN guard
+    if not math.isfinite(theta_num):
+        theta_num = 0.0
+    theta_num = ((theta_num + 180.0) % 360.0) - 180.0
+    if theta_num <= -180.0:
+        theta_num += 360.0
+    if theta_num == -0.0:
         theta_num = 0.0
     data["θ"] = float(theta_num)
     data.pop("theta", None)

@@ -853,11 +853,19 @@ async () => {
   if (collectorTemplateSelect) {
     collectorTemplateSelect.onchange = async () => { await switchCollectorTemplate(collectorTemplateSelect.value); };
   }
+  async function triggerSaveShortcut(active) {
+    if (active && isEditingTarget(active)) {
+      try { active.dispatchEvent(new Event('change', { bubbles: true })); } catch {}
+    }
+    if (btnSave && btnSave.disabled) return false;
+    return await doSave();
+  }
   document.addEventListener('click', (ev) => {
     if (!collectorTemplatePicker || !collectorTemplateMenu) return;
     if (!collectorTemplatePicker.contains(ev.target)) closeTemplateMenu();
   });
   window.addEventListener('keydown', (e) => {
+    const s = (e.key === 's' || e.key === 'S');
     const z = (e.key === 'z' || e.key === 'Z');
     const y = (e.key === 'y' || e.key === 'Y');
     const c = (e.key === 'c' || e.key === 'C');
@@ -865,6 +873,11 @@ async () => {
     const active = document.activeElement;
     const shortcut = e.ctrlKey || e.metaKey;
     const editingShortcutTarget = isEditingTarget(active);
+    if (shortcut && !e.altKey && !e.shiftKey && s) {
+      e.preventDefault();
+      void triggerSaveShortcut(active);
+      return;
+    }
     if (shortcut && !e.altKey && !e.shiftKey && config.enableCollectorControls && !editingShortcutTarget && c) {
       if (copySelectedRect()) e.preventDefault();
       return;
@@ -1066,11 +1079,21 @@ async () => {
     updateRotateButtonState();
   }
 
+  function normalizeThetaDeg(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    let normalized = num % 360;
+    if (normalized > 180) normalized -= 360;
+    if (normalized <= -180) normalized += 360;
+    const rounded = Number(normalized.toFixed(6));
+    return Object.is(rounded, -0) ? 0 : rounded;
+  }
+
   function updateThetaRotateButton(rect = selectedRectData()) {
     if (!btnNormalizeTheta) return;
     btnNormalizeTheta.disabled = !rect;
     btnNormalizeTheta.title = rect
-      ? `Rotate coordinates to ${Number((rectThetaDeg(rect) + 90).toFixed(2))} deg`
+      ? `Rotate coordinates to ${Number(normalizeThetaDeg(rectThetaDeg(rect) + 90).toFixed(2))} deg`
       : 'Select a rectangle to rotate coordinates';
   }
 
@@ -1080,6 +1103,7 @@ async () => {
     try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
     const W = Math.max(1, state.img.naturalW || 1);
     const H = Math.max(1, state.img.naturalH || 1);
+    const oldTheta = rectThetaDeg(r);
     const oldWPx = r.w * W;
     const oldHPx = r.h * H;
     const cxPx = (r.x * W) + oldWPx / 2;
@@ -1090,7 +1114,7 @@ async () => {
     r.h = nextHPx / H;
     r.x = (cxPx - nextWPx / 2) / W;
     r.y = (cyPx - nextHPx / 2) / H;
-    r['θ'] = Number((rectThetaDeg(r) + 90).toFixed(6));
+    r['θ'] = Number(normalizeThetaDeg(oldTheta + 90).toFixed(6));
 
     const vis = rectVisualPx(r);
     if (rectX) rectX.value = Math.round(vis.x);
@@ -1106,8 +1130,7 @@ async () => {
 
   function rectThetaDeg(rect) {
     const raw = rect ? (rect['θ'] ?? rect.theta ?? 0) : 0;
-    const num = Number(raw);
-    return Number.isFinite(num) ? num : 0;
+    return normalizeThetaDeg(raw);
   }
 
   function rectAabbPx(rect) {
@@ -1194,6 +1217,7 @@ async () => {
     next.y = Number(next.y) || 0;
     next.w = Math.max(1 / Math.max(1, state.img.naturalW), Number(next.w) || 0);
     next.h = Math.max(1 / Math.max(1, state.img.naturalH), Number(next.h) || 0);
+    next['θ'] = normalizeThetaDeg(next['θ'] ?? next.theta ?? 0);
     next.x += dx;
     next.y += dy;
     const bounds = rectAnchorBoundsNormalized(next);
@@ -1445,12 +1469,14 @@ function renderRects() {
       if (r.noise) classes.push('rect-noise');
       el.className = classes.join(' ');
       el.dataset.id = r.id;
-      el.style.left = (r.x * state.img.naturalW) + 'px';
-      el.style.top  = (r.y * state.img.naturalH) + 'px';
-      el.style.width  = (r.w * state.img.naturalW) + 'px';
-      el.style.height = (r.h * state.img.naturalH) + 'px';
+      const rectWpx = r.w * state.img.naturalW;
+      const rectHpx = r.h * state.img.naturalH;
+      el.style.left = ((r.x * state.img.naturalW) + rectWpx / 2) + 'px';
+      el.style.top  = ((r.y * state.img.naturalH) + rectHpx / 2) + 'px';
+      el.style.width  = rectWpx + 'px';
+      el.style.height = rectHpx + 'px';
       el.style.transformOrigin = '50% 50%';
-      el.style.transform = `rotate(${rectThetaDeg(r)}deg)`;
+      el.style.transform = `translate(-50%, -50%) rotate(${rectThetaDeg(r)}deg)`;
       el.onclick = (ev) => {
         ev.stopPropagation();
         if (state.mode === 'select') return;
@@ -1482,16 +1508,17 @@ function renderRects() {
           const h = document.createElement('div');
           h.className = 'handle'; h.dataset.pos = pos; h.style.position='absolute'; h.style.width='10px'; h.style.height='10px'; h.style.background='#2563eb'; h.style.border='2px solid #fff'; h.style.borderRadius='2px'; h.style.boxSizing='border-box'; h.style.cursor=cursors[pos];
           const W = (r.w * state.img.naturalW), H = (r.h * state.img.naturalH);
-          const off = -5;
+          const handleSize = 10;
+          const half = handleSize / 2;
           const map = {
-            nw: {left: off, top: off},
-            n:  {left: W/2-5, top: off},
-            ne: {left: W-5, top: off},
-            e:  {left: W-5, top: H/2-5},
-            se: {left: W-5, top: H-5},
-            s:  {left: W/2-5, top: H-5},
-            sw: {left: off, top: H-5},
-            w:  {left: off, top: H/2-5},
+            nw: {left: -half, top: -half},
+            n:  {left: W / 2 - half, top: -half},
+            ne: {left: W - half, top: -half},
+            e:  {left: W - half, top: H / 2 - half},
+            se: {left: W - half, top: H - half},
+            s:  {left: W / 2 - half, top: H - half},
+            sw: {left: -half, top: H - half},
+            w:  {left: -half, top: H / 2 - half},
           };
           const p = map[pos]; h.style.left = p.left+'px'; h.style.top=p.top+'px';
           el.appendChild(h);
@@ -1609,7 +1636,7 @@ function renderSepsInspector(r){
         base.x = Math.max(0, Math.min(Math.max(0, 1 - base.w), base.x));
         base.y = Math.max(0, Math.min(Math.max(0, 1 - base.h), base.y));
       }
-      base['θ'] = getNumber(raw['θ'], getNumber(raw.theta, getNumber(base['θ'], 0)));
+      base['θ'] = normalizeThetaDeg(getNumber(raw['θ'], getNumber(raw.theta, getNumber(base['θ'], 0))));
       if (Array.isArray(raw.seps) && raw.seps.length) {
         const rectHeight = Math.max(hPx, 1);
         base.seps = raw.seps.map((s) => {
@@ -2032,7 +2059,7 @@ function renderSepsInspector(r){
     const W = state.img.naturalW, H = state.img.naturalH;
     let x = +rectX.value || 0, y = +rectY.value || 0, w = +rectW.value || 1, h = +rectH.value || 1;
     const thetaInput = rectTheta ? Number(rectTheta.value) : 0;
-    const theta = Number.isFinite(thetaInput) ? thetaInput : 0;
+    const theta = normalizeThetaDeg(Number.isFinite(thetaInput) ? thetaInput : 0);
     w = clamp(w, 1, W);
     h = clamp(h, 1, H);
     const thetaRad = theta * Math.PI / 180;
@@ -2055,9 +2082,35 @@ function renderSepsInspector(r){
     if (rectTheta) rectTheta.value = String(theta);
     renderRects(); markDirty(true);
   }
+
+  function applyRectThetaEdit(){
+    const id = overlay.dataset.selected || '';
+    const r = state.rects.find(x => x.id === id);
+    if (!r || !rectTheta) return;
+    const thetaInput = Number(rectTheta.value);
+    const theta = normalizeThetaDeg(Number.isFinite(thetaInput) ? thetaInput : 0);
+    if (theta === rectThetaDeg(r)) {
+      rectTheta.value = String(theta);
+      return;
+    }
+    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+    r['θ'] = theta;
+    rectTheta.value = String(theta);
+    renderRects();
+    updateThetaRotateButton(r);
+    markDirty(true);
+  }
+
   rectX.onchange = rectY.onchange = rectW.onchange = rectH.onchange = applyRectEdits;
-  if (rectTheta) rectTheta.onchange = () => { applyRectEdits(); updateThetaRotateButton(); };
-  if (btnNormalizeTheta) btnNormalizeTheta.onclick = () => { rotateSelectedRectTheta90(); };
+  if (rectTheta) rectTheta.onchange = () => { applyRectThetaEdit(); };
+  if (btnNormalizeTheta) {
+    btnNormalizeTheta.onpointerdown = (ev) => { ev.preventDefault(); };
+    btnNormalizeTheta.onmousedown = (ev) => { ev.preventDefault(); };
+    btnNormalizeTheta.onclick = (ev) => {
+      ev.preventDefault();
+      rotateSelectedRectTheta90();
+    };
+  }
   btnDelRect.onclick = () => {
     try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
     const id = overlay.dataset.selected || '';
