@@ -103,6 +103,7 @@ async () => {
   const btnEvaluateAllStart = document.getElementById('btn-evaluate-all-start');
   const btnEvaluateAllCancel = document.getElementById('btn-evaluate-all-cancel');
   const btnClearRects = document.getElementById('btn-clear-rects');
+  const btnNormalizeRectAngles = document.getElementById('btn-normalize-rect-angles');
   const collectorStatus = document.getElementById('collector-status');
   const collectorTemplatePicker = document.getElementById('collector-template-picker');
   const collectorTemplateButton = document.getElementById('collector-template-button');
@@ -397,6 +398,7 @@ async () => {
     if (btnNew) btnNew.disabled = !hasTemplate;
     if (btnGenerateRects) btnGenerateRects.disabled = !hasTemplate || !state.selected || state.evaluating || String(state.selected).startsWith('pending-');
     if (btnEvaluateAll) btnEvaluateAll.disabled = !hasTemplate || state.evaluating || !state.apis.some((item) => item && !item.pending && item.id);
+    if (btnNormalizeRectAngles) btnNormalizeRectAngles.disabled = state.evaluating || !state.selected || !(state.rects || []).length;
     if (btnPrevImage) btnPrevImage.disabled = state.evaluating || currentIndex <= 0;
     if (btnNextImage) btnNextImage.disabled = state.evaluating || currentIndex < 0 || currentIndex >= navigable.length - 1;
     updateRotateButtonState();
@@ -763,8 +765,37 @@ async () => {
     setCollectorStatus('Rectangles cleared');
   }
 
+  function normalizeAllRectAngles() {
+    if (!config.enableCollectorControls) return;
+    if (!state.img.naturalW || !state.img.naturalH || !(state.rects || []).length) {
+      setCollectorStatus('No rectangles to normalize');
+      return;
+    }
+    const targets = (state.rects || []).filter((rect) => rect && (rectThetaDeg(rect) < -45 || rectThetaDeg(rect) > 45));
+    if (!targets.length) {
+      setCollectorStatus('All rectangle angles already normalized');
+      return;
+    }
+    let changed = 0;
+    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+    for (const rect of targets) {
+      let rotations = 0;
+      while ((rectThetaDeg(rect) < -45 || rectThetaDeg(rect) > 45) && rotations < 4) {
+        rotateRectTheta90InPlace(rect);
+        rotations += 1;
+      }
+      if (rotations) changed += 1;
+    }
+    updateSelectedRectInspectorFields();
+    renderRects();
+    markDirty(true);
+    setCollectorStatus(`Normalized ${changed} rectangle${changed === 1 ? '' : 's'}`);
+  }
+
   async function doSave(){
     if (!state.selected) return true;
+    const selectedId = state.selected;
+    setCollectorStatus('Saving...');
     try{
       // Convert rects to pixel units before sending
       const W = state.img.naturalW, H = state.img.naturalH;
@@ -799,27 +830,54 @@ async () => {
           noise.push({ ...px });
         }
       }
-      const r = await fetch(apiUrl(`/apis/${state.selected}`),{
+      const r = await fetch(apiUrl(`/apis/${selectedId}`),{
         method:'PUT', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           name: titleInp.value || 'Untitled API',
+          rotation: normalizedRotation(),
           extract_text: extractText,
           references,
           noise
         })
       });
-      if (!r.ok) throw new Error('save');
-      const doc = await r.json();
+      if (!r.ok) {
+        let detail = '';
+        try {
+          const payload = await r.json();
+          detail = payload && payload.detail ? String(payload.detail) : '';
+        } catch {}
+        throw new Error(detail || 'save');
+      }
+      let doc = await r.json();
+      if (!doc || !doc.id) throw new Error('Invalid save response');
+      // Keep the freshly edited rectangles authoritative on the client.
+      // Some storage backends can briefly serve stale data immediately after save,
+      // which would otherwise snap the rectangles back to their previous position.
+      doc = {
+        ...doc,
+        extract_text: extractText,
+        references,
+        noise,
+      };
       syncBaseAccess(doc);
       if (doc._pendingName) delete doc._pendingName;
       // Update local cache entry
-      const i = state.apis.findIndex(a=>a.id===doc.id);
-      if (i>=0) state.apis[i] = doc; else state.apis.unshift(doc);
-      if (doc.id === state.selected) updateEndpoint(doc);
+      upsertApiDocs([doc]);
       renderList();
+      renderRects();
+      const currentSelection = overlay.dataset.selected || '';
+      if (currentSelection && state.rects.some((rect) => rect && rect.id === currentSelection)) {
+        selectRect(currentSelection);
+      }
       markDirty(false);
+      setCollectorStatus(`Saved ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
       return true;
-    }catch{ return false; }
+    }catch(err){
+      console.error(err);
+      markDirty(true);
+      setCollectorStatus(`Save failed: ${err && err.message ? err.message : 'Please try again'}`, true);
+      return false;
+    }
   }
 
   window.addEventListener('beforeunload', (e)=>{ if(state.dirty){ e.preventDefault(); e.returnValue=''; return ''; } });
@@ -842,6 +900,7 @@ async () => {
     await evaluateAllItems();
   };
   if (btnClearRects) btnClearRects.onclick = () => { clearAllRectangles(); };
+  if (btnNormalizeRectAngles) btnNormalizeRectAngles.onclick = () => { normalizeAllRectAngles(); };
   if (collectorTemplateButton) {
     collectorTemplateButton.onclick = (ev) => {
       ev.stopPropagation();
@@ -856,6 +915,7 @@ async () => {
   async function triggerSaveShortcut(active) {
     if (active && isEditingTarget(active)) {
       try { active.dispatchEvent(new Event('change', { bubbles: true })); } catch {}
+      try { active.blur(); } catch {}
     }
     if (btnSave && btnSave.disabled) return false;
     return await doSave();
@@ -1058,6 +1118,26 @@ async () => {
     };
   }
 
+  function screenDeltaToImageNorm(dx, dy) {
+    const W = Math.max(1, state.img.naturalW || 1);
+    const H = Math.max(1, state.img.naturalH || 1);
+    const z = state.zoom || 1;
+    const rot = normalizedRotation();
+    let imageDx = dx / z;
+    let imageDy = dy / z;
+    if (rot === 90) {
+      imageDx = dy / z;
+      imageDy = -dx / z;
+    } else if (rot === 180) {
+      imageDx = -dx / z;
+      imageDy = -dy / z;
+    } else if (rot === 270) {
+      imageDx = -dy / z;
+      imageDy = dx / z;
+    }
+    return { dx: imageDx / W, dy: imageDy / H };
+  }
+
   function isEditingTarget(el, { allowZoom = false } = {}) {
     if (!el) return false;
     if (allowZoom && el === zoomRange) return false;
@@ -1077,6 +1157,7 @@ async () => {
     centerStage();
     renderRects();
     updateRotateButtonState();
+    markDirty(true);
   }
 
   function normalizeThetaDeg(value) {
@@ -1097,10 +1178,8 @@ async () => {
       : 'Select a rectangle to rotate coordinates';
   }
 
-  function rotateSelectedRectTheta90() {
-    const r = selectedRectData();
+  function rotateRectTheta90InPlace(r) {
     if (!r) return false;
-    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
     const W = Math.max(1, state.img.naturalW || 1);
     const H = Math.max(1, state.img.naturalH || 1);
     const oldTheta = rectThetaDeg(r);
@@ -1115,15 +1194,30 @@ async () => {
     r.x = (cxPx - nextWPx / 2) / W;
     r.y = (cyPx - nextHPx / 2) / H;
     r['θ'] = Number(normalizeThetaDeg(oldTheta + 90).toFixed(6));
+    return true;
+  }
 
-    const vis = rectVisualPx(r);
+  function updateSelectedRectInspectorFields(r = selectedRectData()) {
+    if (!r) {
+      updateThetaRotateButton(null);
+      return;
+    }
+    const vis = rectInspectorBoxPx(r);
     if (rectX) rectX.value = Math.round(vis.x);
     if (rectY) rectY.value = Math.round(vis.y);
-    if (rectW) rectW.value = Math.round(r.w * state.img.naturalW);
-    if (rectH) rectH.value = Math.round(r.h * state.img.naturalH);
-    if (rectTheta) rectTheta.value = String(Number(r['θ'].toFixed(2)));
-    renderRects();
+    if (rectW) rectW.value = Math.round(vis.w);
+    if (rectH) rectH.value = Math.round(vis.h);
+    if (rectTheta) rectTheta.value = String(Number(rectThetaDeg(r).toFixed(2)));
     updateThetaRotateButton(r);
+  }
+
+  function rotateSelectedRectTheta90() {
+    const r = selectedRectData();
+    if (!r) return false;
+    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+    rotateRectTheta90InPlace(r);
+    updateSelectedRectInspectorFields(r);
+    renderRects();
     markDirty(true);
     return true;
   }
@@ -1166,6 +1260,60 @@ async () => {
       h: aabbH,
       anchorW: wPx,
       anchorH: hPx,
+    };
+  }
+
+  function imageBoxToViewBoxPx(box) {
+    const W = Math.max(1, state.img.naturalW || 1);
+    const H = Math.max(1, state.img.naturalH || 1);
+    const x = Number(box.x) || 0;
+    const y = Number(box.y) || 0;
+    const w = Math.max(1, Number(box.w) || 1);
+    const h = Math.max(1, Number(box.h) || 1);
+    const rot = normalizedRotation();
+    if (rot === 90) return { x: H - y - h, y: x, w: h, h: w };
+    if (rot === 180) return { x: W - x - w, y: H - y - h, w, h };
+    if (rot === 270) return { x: y, y: W - x - w, w: h, h: w };
+    return { x, y, w, h };
+  }
+
+  function viewBoxToImageBoxPx(box) {
+    const W = Math.max(1, state.img.naturalW || 1);
+    const H = Math.max(1, state.img.naturalH || 1);
+    const x = Number(box.x) || 0;
+    const y = Number(box.y) || 0;
+    const w = Math.max(1, Number(box.w) || 1);
+    const h = Math.max(1, Number(box.h) || 1);
+    const rot = normalizedRotation();
+    if (rot === 90) return { x: y, y: H - x - w, w: h, h: w };
+    if (rot === 180) return { x: W - x - w, y: H - y - h, w, h };
+    if (rot === 270) return { x: W - y - h, y: x, w: h, h: w };
+    return { x, y, w, h };
+  }
+
+  function rectInspectorBoxPx(rect) {
+    return imageBoxToViewBoxPx(rectVisualPx(rect));
+  }
+
+  function rawSizeFromAabbPx(aabbW, aabbH, thetaDeg, fallbackW, fallbackH) {
+    const theta = normalizeThetaDeg(thetaDeg) * Math.PI / 180;
+    const cosA = Math.abs(Math.cos(theta));
+    const sinA = Math.abs(Math.sin(theta));
+    const det = (cosA * cosA) - (sinA * sinA);
+    let rawW = 0;
+    let rawH = 0;
+    if (Math.abs(det) > 1e-6) {
+      rawW = ((cosA * aabbW) - (sinA * aabbH)) / det;
+      rawH = ((cosA * aabbH) - (sinA * aabbW)) / det;
+    }
+    if (!Number.isFinite(rawW) || !Number.isFinite(rawH) || rawW <= 0 || rawH <= 0) {
+      const ratio = (fallbackW > 0 && fallbackH > 0) ? fallbackW / fallbackH : 1;
+      rawH = aabbW / Math.max(0.000001, (cosA * ratio) + sinA);
+      rawW = rawH * ratio;
+    }
+    return {
+      w: Math.max(1, Math.min(Math.max(1, state.img.naturalW || 1), rawW)),
+      h: Math.max(1, Math.min(Math.max(1, state.img.naturalH || 1), rawH)),
     };
   }
 
@@ -1314,12 +1462,96 @@ async () => {
     rect.x = (rect.x * W + shiftX) / W;
     rect.y = (rect.y * H + shiftY) / H;
     if (overlay.dataset.selected === rect.id) {
-      const nextVis = rectVisualPx(rect);
+      const nextVis = rectInspectorBoxPx(rect);
       if (rectX) rectX.value = String(Math.round(nextVis.x));
       if (rectY) rectY.value = String(Math.round(nextVis.y));
     }
     renderRects();
     return true;
+  }
+
+  function findRectElement(id) {
+    for (const el of overlay.querySelectorAll('.rect')) {
+      if (el.dataset.id === id) return el;
+    }
+    return null;
+  }
+
+  function beginMovingRect(rect, ev, startPoint = null) {
+    if (!rect || !rectCanUseDrawModeTools(rect)) return false;
+    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+    const originalEl = ev.currentTarget && ev.currentTarget.classList && ev.currentTarget.classList.contains('rect') && ev.currentTarget.isConnected
+      ? ev.currentTarget
+      : null;
+    if (overlay.dataset.selected !== rect.id) {
+      selectRect(rect.id);
+    }
+    const liveEl = findRectElement(rect.id) || originalEl;
+    moving = {
+      id: rect.id,
+      el: liveEl,
+      startX: startPoint ? startPoint.gx : rect.x,
+      startY: startPoint ? startPoint.gy : rect.y,
+      startClientX: ev.clientX,
+      startClientY: ev.clientY,
+      rx: rect.x,
+      ry: rect.y,
+      rw: rect.w,
+      rh: rect.h,
+      pointerId: ev.pointerId,
+      changed: false,
+    };
+    if (moving.el && ev.pointerId !== undefined && moving.el.setPointerCapture) {
+      try { moving.el.setPointerCapture(ev.pointerId); } catch {}
+    }
+    return true;
+  }
+
+  function updateMovingRect(clientX, clientY) {
+    if (!moving) return false;
+    const r = state.rects.find(x=>x.id===moving.id);
+    if(!r) { moving = null; return false; }
+    const prevX = r.x, prevY = r.y;
+    const delta = screenDeltaToImageNorm(clientX - moving.startClientX, clientY - moving.startClientY);
+    let nextX = moving.rx + delta.dx;
+    let nextY = moving.ry + delta.dy;
+    if (!moving.changed && (Math.abs(nextX - prevX) > 0.0001 || Math.abs(nextY - prevY) > 0.0001)) {
+      moving.changed = true;
+    }
+    r.x = nextX; r.y = nextY;
+    const { minX, maxX, minY, maxY } = rectAnchorBoundsNormalized(r);
+    if (maxX < minX) nextX = minX;
+    else nextX = clamp(nextX, minX, maxX);
+    if (maxY < minY) nextY = minY;
+    else nextY = clamp(nextY, minY, maxY);
+    r.x = nextX; r.y = nextY;
+    if (moving.el && moving.el.isConnected) {
+      positionRectElement(moving.el, r);
+    } else {
+      const el = findRectElement(moving.id);
+      if (el) {
+        moving.el = el;
+        positionRectElement(el, r);
+      } else {
+        renderRects();
+      }
+    }
+    updateSelectedRectInspectorFields(r);
+    return true;
+  }
+
+  function finishMovingRect() {
+    if (!moving) return false;
+    const rectId = moving.id;
+    const moved = !!moving.changed;
+    moving = null;
+    if (moved) {
+      renderRects();
+      const r = state.rects.find(x=>x.id===rectId);
+      updateSelectedRectInspectorFields(r || null);
+      markDirty(true);
+    }
+    return moved;
   }
 
   function renderList() {
@@ -1407,13 +1639,7 @@ async () => {
       if (rectReference) rectReference.checked = !!r.reference;
       if (rectNoise) rectNoise.checked = !!r.noise;
       setInspectorOpen(true);
-      const vis = rectVisualPx(r);
-      rectX.value = Math.round(vis.x);
-      rectY.value = Math.round(vis.y);
-      rectW.value = Math.round(r.w * state.img.naturalW);
-      rectH.value = Math.round(r.h * state.img.naturalH);
-      if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
-      updateThetaRotateButton(r);
+      updateSelectedRectInspectorFields(r);
       try { renderSepsInspector(r); } catch {}
     } else {
       clearSelection({ skipRender: true });
@@ -1469,14 +1695,18 @@ function renderRects() {
       if (r.noise) classes.push('rect-noise');
       el.className = classes.join(' ');
       el.dataset.id = r.id;
-      const rectWpx = r.w * state.img.naturalW;
-      const rectHpx = r.h * state.img.naturalH;
-      el.style.left = ((r.x * state.img.naturalW) + rectWpx / 2) + 'px';
-      el.style.top  = ((r.y * state.img.naturalH) + rectHpx / 2) + 'px';
-      el.style.width  = rectWpx + 'px';
-      el.style.height = rectHpx + 'px';
-      el.style.transformOrigin = '50% 50%';
-      el.style.transform = `translate(-50%, -50%) rotate(${rectThetaDeg(r)}deg)`;
+      el.draggable = false;
+      positionRectElement(el, r);
+      el.onpointerdown = (ev) => {
+        if (ev.target && ev.target.closest && (ev.target.closest('.handle') || ev.target.closest('.sep-line'))) return;
+        if (!(state.mode === 'select' || state.mode === 'draw')) return;
+        if (!rectCanUseDrawModeTools(r)) return;
+        if (!state.img.naturalW || !state.img.naturalH) return;
+        const point = eventImageNorm(ev);
+        if (!beginMovingRect(r, ev, point)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+      };
       el.onclick = (ev) => {
         ev.stopPropagation();
         if (state.mode === 'select') return;
@@ -1528,6 +1758,18 @@ function renderRects() {
   }
 }
 
+function positionRectElement(el, r) {
+  if (!el || !r) return;
+  const rectWpx = r.w * state.img.naturalW;
+  const rectHpx = r.h * state.img.naturalH;
+  el.style.left = ((r.x * state.img.naturalW) + rectWpx / 2) + 'px';
+  el.style.top  = ((r.y * state.img.naturalH) + rectHpx / 2) + 'px';
+  el.style.width  = rectWpx + 'px';
+  el.style.height = rectHpx + 'px';
+  el.style.transformOrigin = '50% 50%';
+  el.style.transform = `translate(-50%, -50%) rotate(${rectThetaDeg(r)}deg)`;
+}
+
 function renderSepsInspector(r){
   if (!sepsList) return;
   sepsList.innerHTML = '';
@@ -1563,21 +1805,69 @@ function renderSepsInspector(r){
   };
 }
 
-  btnSave.onclick = async () => { await doSave(); };
+  if (btnSave) {
+    btnSave.onpointerdown = (ev) => { ev.preventDefault(); };
+    btnSave.onmousedown = (ev) => { ev.preventDefault(); };
+    btnSave.onclick = async () => { await triggerSaveShortcut(document.activeElement); };
+  }
 
-  async function loadApi(id) {
-    const doc = state.apis.find(a => a.id === id);
+  async function fetchApiDocForLoad(id) {
+    const cached = state.apis.find(a => a.id === id) || null;
+    if (!id || String(id).startsWith('pending-')) return cached;
+    try {
+      const resp = await fetch(apiUrl(`/apis/${id}?_=${Date.now()}`), { cache: 'no-store' });
+      if (!resp.ok) throw new Error('load');
+      const doc = await resp.json();
+      if (!doc || String(doc.id) !== String(id)) throw new Error('load');
+      upsertApiDocs([doc]);
+      return doc;
+    } catch (err) {
+      console.warn('Failed to refresh API document before load', err);
+      return cached;
+    }
+  }
+
+  async function waitForWorkspaceImageLoad() {
+    await new Promise((res) => {
+      if (img.complete && img.naturalWidth) {
+        res();
+        return;
+      }
+      const done = () => {
+        img.onload = null;
+        img.onerror = null;
+        res();
+      };
+      img.onload = done;
+      img.onerror = done;
+    });
+    state.img.naturalW = img.naturalWidth;
+    state.img.naturalH = img.naturalHeight;
+  }
+
+  async function refreshWorkspaceImageFromDoc(doc) {
+    if (!doc || !doc.image_url || !img) return;
+    if (img.getAttribute('src') !== doc.image_url) {
+      img.src = doc.image_url;
+    }
+    await waitForWorkspaceImageLoad();
+  }
+
+  async function loadApi(id, options = {}) {
+    const doc = options.doc || await fetchApiDocForLoad(id);
     if (!doc) { console.warn('API not found in cache'); return; }
     syncBaseAccess(doc);
     if (doc._pendingName) delete doc._pendingName;
+    if (options.doc) upsertApiDocs([doc]);
+    const selectedRectId = options.selectedRectId || (options.preserveSelection ? (overlay.dataset.selected || '') : '');
     state.selected = id;
+    state.rotation = normalizedRotation(doc.rotation || 0);
+    updateRotateButtonState();
     // Wait image load to set sizes without altering user zoom
     hint.style.display = 'none';
     hideCreate();
     stage.style.display = 'block';
-    img.src = doc.image_url;
-    await new Promise((res) => { if (img.complete) res(); else img.onload = res; });
-    state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
+    await refreshWorkspaceImageFromDoc(doc);
     // Convert pixel rects to normalized rects for display
     const W = state.img.naturalW, H = state.img.naturalH;
     const toArray = (value) => (Array.isArray(value) ? value : []);
@@ -1671,7 +1961,7 @@ function renderSepsInspector(r){
     }
     centerStage();
     renderRects();
-    selectRect('');
+    selectRect(selectedRectId && state.rects.some((rect) => rect && rect.id === selectedRectId) ? selectedRectId : '');
     markDirty(false);
     // Seed history so Undo works from first edit
     try { history.undo = []; history.redo = []; history.undo.push(cloneRects()); } catch {}
@@ -1679,6 +1969,8 @@ function renderSepsInspector(r){
   }
 
   async function initFromCurrentImage({fit=true}={}){
+    state.rotation = 0;
+    updateRotateButtonState();
     await new Promise((res) => { if (img.complete) res(); else img.onload = res; });
     state.img.naturalW = img.naturalWidth; state.img.naturalH = img.naturalHeight;
     if (fit) {
@@ -1804,10 +2096,7 @@ function renderSepsInspector(r){
     const fallback = rectCanUseDrawModeTools(fallbackCandidate) ? fallbackCandidate : null;
     const r = picked || fallback;
     if (!r) return;
-    const id = r.id;
-    history.undo.push(cloneRects()); history.redo.length = 0;
-    selectRect(id);
-    moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
+    beginMovingRect(r, ev, { gx, gy });
     ev.preventDefault(); ev.stopPropagation();
   });
   overlay.addEventListener('mousedown', (ev) => {
@@ -1871,11 +2160,7 @@ function renderSepsInspector(r){
       ev.preventDefault(); ev.stopPropagation(); return;
     }
     if ((state.mode === 'select' || state.mode === 'draw') && rectData && rectCanUseDrawModeTools(rectData)) {
-      try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
-      const r = rectData;
-      const id = r.id;
-      selectRect(id);
-      moving = { id, startX: gx, startY: gy, rx: r.x, ry: r.y, rw: r.w, rh: r.h, changed: false };
+      beginMovingRect(rectData, ev, { gx, gy });
       ev.preventDefault(); ev.stopPropagation(); return;
     }
     if (state.mode !== 'draw') return;
@@ -1897,43 +2182,10 @@ function renderSepsInspector(r){
       return;
     }
     if (moving) {
-      if (ev.buttons !== undefined && (ev.buttons & 1) === 0) {
-        const moved = !!moving.changed;
-        moving = null;
-        if (moved) markDirty(true);
-        return;
-      }
-      const r = state.rects.find(x=>x.id===moving.id);
-      if(!r) { moving = null; return; }
-      const prevX = r.x, prevY = r.y;
-      const dx = gx - moving.startX, dy = gy - moving.startY;
-      let nextX = moving.rx + dx;
-      let nextY = moving.ry + dy;
-      if (!moving.changed && (Math.abs(nextX - prevX) > 0.0001 || Math.abs(nextY - prevY) > 0.0001)) {
-        moving.changed = true;
-      }
-      r.x = nextX; r.y = nextY;
-      const { minX, maxX, minY, maxY } = rectAnchorBoundsNormalized(r);
-      if (maxX < minX) nextX = minX;
-      else nextX = clamp(nextX, minX, maxX);
-      if (maxY < minY) nextY = minY;
-      else nextY = clamp(nextY, minY, maxY);
-      r.x = nextX; r.y = nextY;
-      renderRects();
-      // update inspector fields
-      const vis = rectVisualPx(r);
-      rectX.value = Math.round(vis.x);
-      rectY.value = Math.round(vis.y);
-      if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
+      updateMovingRect(ev.clientX, ev.clientY);
       return;
     }
     if (resizing) {
-      if (ev.buttons !== undefined && (ev.buttons & 1) === 0) {
-        const resized = !!resizing.changed;
-        resizing = null;
-        if (resized) markDirty(true);
-        return;
-      }
       const r = state.rects.find(x=>x.id===resizing.id);
       if(!r) { resizing = null; return; }
       const prevX = r.x, prevY = r.y, prevW = r.w, prevH = r.h;
@@ -1956,14 +2208,34 @@ function renderSepsInspector(r){
       if (maxY < minY) r.y = minY;
       else r.y = clamp(r.y, minY, maxY);
       renderRects();
-      const vis = rectVisualPx(r);
-      rectX.value = Math.round(vis.x);
-      rectY.value = Math.round(vis.y);
-      rectW.value = Math.round(r.w * state.img.naturalW);
-      rectH.value = Math.round(r.h * state.img.naturalH);
-      if (rectTheta) rectTheta.value = String(rectThetaDeg(r));
+      updateSelectedRectInspectorFields(r);
       return;
     }
+  });
+  window.addEventListener('pointermove', (ev) => {
+    if (!moving || moving.pointerId !== ev.pointerId) return;
+    updateMovingRect(ev.clientX, ev.clientY);
+    ev.preventDefault();
+  });
+  window.addEventListener('blur', () => {
+    if (moving) {
+      finishMovingRect();
+    }
+    if (resizing) {
+      const resized = !!resizing.changed;
+      resizing = null;
+      if (resized) markDirty(true);
+    }
+  });
+  window.addEventListener('pointerup', (ev) => {
+    if (!moving || moving.pointerId !== ev.pointerId) return;
+    updateMovingRect(ev.clientX, ev.clientY);
+    finishMovingRect();
+    ev.preventDefault();
+  });
+  window.addEventListener('pointercancel', (ev) => {
+    if (!moving || moving.pointerId !== ev.pointerId) return;
+    finishMovingRect();
   });
   window.addEventListener('mouseup', (ev) => {
     if (drawing) {
@@ -1983,9 +2255,8 @@ function renderSepsInspector(r){
       drawing = null; renderRects(); return;
     }
     if (moving) {
-      const moved = !!moving.changed;
-      moving = null;
-      if (moved) markDirty(true);
+      updateMovingRect(ev.clientX, ev.clientY);
+      finishMovingRect();
       return;
     }
     if (resizing) {
@@ -2057,16 +2328,22 @@ function renderSepsInspector(r){
     const r = state.rects.find(x => x.id === id);
     if (!r) return;
     const W = state.img.naturalW, H = state.img.naturalH;
-    let x = +rectX.value || 0, y = +rectY.value || 0, w = +rectW.value || 1, h = +rectH.value || 1;
+    let x = +rectX.value || 0, y = +rectY.value || 0, viewW = +rectW.value || 1, viewH = +rectH.value || 1;
     const thetaInput = rectTheta ? Number(rectTheta.value) : 0;
     const theta = normalizeThetaDeg(Number.isFinite(thetaInput) ? thetaInput : 0);
-    w = clamp(w, 1, W);
-    h = clamp(h, 1, H);
+    viewW = Math.max(1, viewW);
+    viewH = Math.max(1, viewH);
+    const imageBox = viewBoxToImageBoxPx({ x, y, w: viewW, h: viewH });
+    let aabbW = clamp(imageBox.w, 1, W);
+    let aabbH = clamp(imageBox.h, 1, H);
+    const rawSize = rawSizeFromAabbPx(aabbW, aabbH, theta, r.w * W, r.h * H);
+    const w = rawSize.w;
+    const h = rawSize.h;
     const thetaRad = theta * Math.PI / 180;
-    const aabbW = Math.abs(w * Math.cos(thetaRad)) + Math.abs(h * Math.sin(thetaRad));
-    const aabbH = Math.abs(w * Math.sin(thetaRad)) + Math.abs(h * Math.cos(thetaRad));
-    x = clamp(x, 0, Math.max(0, W - aabbW));
-    y = clamp(y, 0, Math.max(0, H - aabbH));
+    aabbW = Math.abs(w * Math.cos(thetaRad)) + Math.abs(h * Math.sin(thetaRad));
+    aabbH = Math.abs(w * Math.sin(thetaRad)) + Math.abs(h * Math.cos(thetaRad));
+    x = clamp(imageBox.x, 0, Math.max(0, W - aabbW));
+    y = clamp(imageBox.y, 0, Math.max(0, H - aabbH));
     const anchorX = x + ((aabbW - w) / 2);
     const anchorY = y + ((aabbH - h) / 2);
     r.x = anchorX / W;
@@ -2074,12 +2351,7 @@ function renderSepsInspector(r){
     r.w = w / W;
     r.h = h / H;
     r['θ'] = theta;
-    const vis = rectVisualPx(r);
-    rectX.value = Math.round(vis.x);
-    rectY.value = Math.round(vis.y);
-    rectW.value = Math.round(w);
-    rectH.value = Math.round(h);
-    if (rectTheta) rectTheta.value = String(theta);
+    updateSelectedRectInspectorFields(r);
     renderRects(); markDirty(true);
   }
 

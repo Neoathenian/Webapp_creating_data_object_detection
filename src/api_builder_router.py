@@ -155,6 +155,16 @@ def _clean_rect(rect: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _clean_rotation(value: Any) -> int:
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        num = 0.0
+    if not math.isfinite(num):
+        num = 0.0
+    return int(round(num / 90.0) * 90) % 360
+
+
 def _sanitize_rect_input(
     raw: Union[Rect, Dict[str, Any], str, None],
     existing: Dict[str, Dict[str, Any]],
@@ -162,7 +172,7 @@ def _sanitize_rect_input(
     if raw is None:
         return None
     if isinstance(raw, Rect):
-        data = raw.model_dump()
+        data = raw.model_dump(by_alias=True)
     elif isinstance(raw, dict):
         data = dict(raw)
     elif isinstance(raw, str):
@@ -178,6 +188,10 @@ def _sanitize_rect_input(
         base = dict(existing[rid])
         for key, value in data.items():
             if value is not None:
+                if key == "theta":
+                    base.pop("θ", None)
+                elif key == "θ":
+                    base.pop("theta", None)
                 base[key] = value
         data = base
 
@@ -332,6 +346,7 @@ async def create_api(request: Request, image: UploadFile = File(...), name: Opti
         "created_at": now,
         "updated_at": now,
         "image_blob": img_blob,
+        "rotation": 0,
         "extract_text": [],
         "references": [],
         "noise": [],
@@ -369,6 +384,7 @@ def get_api(api_id: str, request: Request):
 
 class ApiUpdate(BaseModel):
     name: Optional[str] = None
+    rotation: Optional[Union[int, float]] = None
     rects: Optional[List[Rect]] = None
     extract_text: Optional[List[Union[str, Rect, Dict[str, Any]]]] = None
     references: Optional[List[Union[str, Rect, Dict[str, Any]]]] = None
@@ -420,6 +436,11 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
             except Exception:
                 pass
             changed = False  # already saved
+    if upd.rotation is not None:
+        rotation = _clean_rotation(upd.rotation)
+        if rotation != _clean_rotation(doc.get("rotation", 0)):
+            doc["rotation"] = rotation
+            changed = True
     doc = _normalize_doc_structure(doc)
     existing_lookup: Dict[str, Dict[str, Any]] = {}
     for group_name in ("extract_text", "references", "noise"):

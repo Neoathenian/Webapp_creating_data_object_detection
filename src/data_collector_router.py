@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from src.api_builder_router import (
     ApiUpdate,
     Rect,
+    _clean_rotation,
     _image_blob_by_name,
     _now_iso,
     _normalize_doc_structure,
@@ -94,16 +95,22 @@ def _save_item(doc: Dict[str, Any]) -> None:
 
 def _response_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
     resp = _normalize_doc_structure(dict(doc))
-    display_blob = resp.get("evaluated_image_blob") or resp.get("image_blob") or ""
+    raw_blob = resp.get("image_blob") or ""
+    evaluated_blob = resp.get("evaluated_image_blob") or ""
     url = None
     try:
-        url = signed_url(display_blob, minutes=20)
+        url = signed_url(raw_blob, minutes=20)
     except Exception:
         url = None
     cache_key = resp.get("updated_at") or resp.get("id") or ""
-    resp["image_url"] = url or f"/data-collector/images/{resp.get('id')}?v={cache_key}"
-    if resp.get("evaluated_image_blob"):
-        resp["raw_image_url"] = f"/data-collector/images/{resp.get('id')}?view=raw&v={cache_key}"
+    resp["image_url"] = url or f"/data-collector/images/{resp.get('id')}?view=raw&v={cache_key}"
+    if evaluated_blob:
+        evaluated_url = None
+        try:
+            evaluated_url = signed_url(evaluated_blob, minutes=20)
+        except Exception:
+            evaluated_url = None
+        resp["evaluated_image_url"] = evaluated_url or f"/data-collector/images/{resp.get('id')}?view=evaluated&v={cache_key}"
     return resp
 
 
@@ -280,6 +287,7 @@ async def create_item(
             "created_at": now,
             "updated_at": now,
             "image_blob": img_blob,
+            "rotation": 0,
             "extract_text": [],
             "references": [],
             "noise": [],
@@ -316,6 +324,11 @@ def update_item(item_id: str, upd: ApiUpdate, request: Request):
         if new_name != doc.get("name"):
             doc["name"] = new_name
             doc["updated_at"] = _now_iso()
+            changed = True
+    if upd.rotation is not None:
+        rotation = _clean_rotation(upd.rotation)
+        if rotation != _clean_rotation(doc.get("rotation", 0)):
+            doc["rotation"] = rotation
             changed = True
 
     doc = _normalize_doc_structure(doc)
@@ -451,13 +464,13 @@ def delete_item(item_id: str, request: Request):
 
 
 @router.get("/images/{item_id}")
-def fetch_image(item_id: str, request: Request, view: str = "display"):
+def fetch_image(item_id: str, request: Request, view: str = "raw"):
     uid = _user_id(request)
     doc = _load_item(uid, item_id)
     if doc.get("user_id") != uid:
         raise HTTPException(status_code=403, detail="Forbidden")
     img_blob = doc.get("image_blob") or ""
-    if view != "raw" and doc.get("evaluated_image_blob"):
+    if view == "evaluated" and doc.get("evaluated_image_blob"):
         img_blob = doc.get("evaluated_image_blob") or img_blob
     try:
         data = download_bytes(img_blob)
