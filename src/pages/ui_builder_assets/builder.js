@@ -1557,13 +1557,14 @@ async () => {
   function renderList() {
     sortApisForList();
     listEl.innerHTML = '';
-    for (const it of state.apis) {
+    for (const [index, it] of state.apis.entries()) {
       const li = document.createElement('li');
       li.className = 'sidebar-item' + (it.id === state.selected ? ' active' : '') + (it.pending ? ' pending' : '');
       li.dataset.id = it.id;
       const thumb = document.createElement('div'); thumb.className = 'thumb';
       const img = document.createElement('img'); img.src = it.image_url; thumb.appendChild(img);
-      const labelText = (it._pendingName ?? it.name) || 'Untitled';
+      const baseLabelText = (it._pendingName ?? it.name) || 'Untitled';
+      const labelText = config.enableCollectorControls ? `(${index + 1}) ${baseLabelText}` : baseLabelText;
       const label = document.createElement('div'); label.textContent = labelText;
       li.appendChild(thumb); li.appendChild(label);
       li.onclick = async () => {
