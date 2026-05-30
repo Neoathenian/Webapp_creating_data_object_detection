@@ -334,3 +334,11 @@ button.toggle-python { display:inline-flex; align-items:center; gap:8px; padding
   .inspector-close:hover { background:#f3f4f6; }
   #btn-save { padding: 8px 14px; font-size:14px; }
 </style>
+
+<style>
+.rect.rect-prediction {
+  border: 2px dashed #f59e0b !important;
+  background: rgba(245, 158, 11, 0.2) !important;
+  pointer-events: none; /* Make predictions unclickable so they don't interfere with manual bounds */
+}
+</style>

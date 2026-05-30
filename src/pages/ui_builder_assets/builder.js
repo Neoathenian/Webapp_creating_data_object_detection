@@ -2,32 +2,53 @@
 
 async () => {
   const path = (typeof window !== 'undefined' && window.location && window.location.pathname) ? window.location.pathname : '';
-  const inferredCollector = path.replace(/\/+$/, '').endsWith('/data-collector') || path.includes('/data-collector/');
-  const defaultConfig = inferredCollector ? {
-    apiPrefix: '/data-collector',
-    pagePath: '/data-collector',
-    sidebarTitle: 'Data collector',
-    newButtonText: '+ Add files',
-    titlePlaceholder: 'Sample name',
-    uploadPrompt: 'Add images for the selected template',
-    emptyHint: 'Choose a template, then add images to evaluate.',
-    deleteLabel: 'image',
-    showIntegration: false,
-    enableCollectorControls: true,
-    autoGenerateOnCreate: false,
-  } : {
-    apiPrefix: '/builder',
-    pagePath: '/app',
-    sidebarTitle: 'APIs',
-    newButtonText: '+ New API',
-    titlePlaceholder: 'API name',
-    uploadPrompt: 'Upload an image to start a new API',
-    emptyHint: 'Select an API from the left or create a new one.',
-    deleteLabel: 'API',
-    showIntegration: true,
-    enableCollectorControls: false,
-    autoGenerateOnCreate: false,
-  };
+  const isEval = path.replace(/\/+$/, '').endsWith('/evaluation-overlap') || path.includes('/evaluation-overlap/');
+  const isCollector = path.replace(/\/+$/, '').endsWith('/data-collector') || path.includes('/data-collector/');
+  
+  let defaultConfig;
+  if (isEval) {
+      defaultConfig = {
+        apiPrefix: '/evaluation-overlap',
+        pagePath: '/evaluation-overlap',
+        sidebarTitle: 'Evaluation overlap',
+        newButtonText: '+ Add files',
+        titlePlaceholder: 'Sample name',
+        uploadPrompt: 'Add images for the selected template',
+        emptyHint: 'Choose a template, then add images to evaluate.',
+        deleteLabel: 'image',
+        showIntegration: false,
+        enableCollectorControls: true,
+        autoGenerateOnCreate: false,
+      };
+  } else if (isCollector) {
+      defaultConfig = {
+        apiPrefix: '/data-collector',
+        pagePath: '/data-collector',
+        sidebarTitle: 'Data collector',
+        newButtonText: '+ Add files',
+        titlePlaceholder: 'Sample name',
+        uploadPrompt: 'Add images for the selected template',
+        emptyHint: 'Choose a template, then add images to evaluate.',
+        deleteLabel: 'image',
+        showIntegration: false,
+        enableCollectorControls: true,
+        autoGenerateOnCreate: false,
+      };
+  } else {
+      defaultConfig = {
+        apiPrefix: '/builder',
+        pagePath: '/app',
+        sidebarTitle: 'APIs',
+        newButtonText: '+ New API',
+        titlePlaceholder: 'API name',
+        uploadPrompt: 'Upload an image to start a new API',
+        emptyHint: 'Select an API from the left or create a new one.',
+        deleteLabel: 'API',
+        showIntegration: true,
+        enableCollectorControls: false,
+        autoGenerateOnCreate: false,
+      };
+  }
   const injectedConfig = (typeof window !== 'undefined' && window.__BUILDER_CONFIG__) || {};
   const config = { ...defaultConfig, ...injectedConfig };
   const apiPrefix = String(config.apiPrefix || '/builder').replace(/\/+$/, '');
@@ -64,6 +85,9 @@ async () => {
   const hint = document.getElementById('workspace-hint');
   const stage = document.getElementById('stage');
   const img = document.getElementById('workspace-img');
+  const stagePred = document.getElementById('stage-prediction');
+  const imgPred = document.getElementById('workspace-img-prediction');
+  const overlayPred = document.getElementById('overlay-prediction');
   const overlay = document.getElementById('overlay');
   const titleInp = document.getElementById('api-title');
   const zoomRange = document.getElementById('zoom-range');
@@ -1653,6 +1677,13 @@ async () => {
     overlay.style.top = '0px';
     overlay.style.width = (state.img.naturalW) + 'px';
     overlay.style.height = (state.img.naturalH) + 'px';
+    
+    if (overlayPred) {
+      overlayPred.style.left = '0px';
+      overlayPred.style.top = '0px';
+      overlayPred.style.width = (state.img.naturalW) + 'px';
+      overlayPred.style.height = (state.img.naturalH) + 'px';
+    }
   }
 
   function applyTransform(){
@@ -1671,11 +1702,23 @@ async () => {
       a = 0; b = -z; c = z; d = 0; e = state.panX || 0; f = (state.panY || 0) + W * z;
     }
     st.style.transform = `matrix(${a}, ${b}, ${c}, ${d}, ${e}, ${f})`;
+
+    const stPred = document.getElementById('stage-prediction');
+    if (stPred) {
+      stPred.style.transform = `matrix(${a}, ${b}, ${c}, ${d}, ${e}, ${f})`;
+    }
   }
 
   function centerStage() {
     const wrap = document.getElementById('workspace');
-    const w = wrap.clientWidth, h = wrap.clientHeight;
+    let w = wrap.clientWidth;
+    const h = wrap.clientHeight;
+    
+    // In dual-pane mode, center against half the width
+    const leftPane = document.getElementById('left-pane');
+    if (leftPane && leftPane.style.display !== 'none' && leftPane.clientWidth) {
+      w = leftPane.clientWidth;
+    }
     const size = rotatedContentSize();
     const sw = size.w;
     const sh = size.h;
@@ -1686,6 +1729,7 @@ async () => {
 
 function renderRects() {
   overlay.innerHTML = '';
+  if (overlayPred) overlayPred.innerHTML = '';
   layoutOverlay();
   for (const r of state.rects) {
       const el = document.createElement('div');
@@ -1694,6 +1738,8 @@ function renderRects() {
       if (r.extract_text !== false) classes.push('rect-info');
       if (r.reference) classes.push('rect-reference');
       if (r.noise) classes.push('rect-noise');
+
+      if (r.is_prediction) classes.push('rect-prediction');
       el.className = classes.join(' ');
       el.dataset.id = r.id;
       el.draggable = false;
@@ -1731,6 +1777,27 @@ function renderRects() {
         s.style.top = (yRel * (r.h * state.img.naturalH)) + 'px';
         el.appendChild(s);
       }
+      if (config.apiPrefix === "/evaluation-overlap") {
+          // If prediction show in overlayPred
+          if (r.is_prediction && overlayPred) {
+              if (state.iou_map && state.iou_map[r.id] !== undefined) {
+                  const label = document.createElement('div');
+                  label.style.position = 'absolute';
+                  label.style.top = '-1.5em';
+                  label.style.background = 'black';
+                  label.style.color = 'white';
+                  label.style.padding = '2px 4px';
+                  label.style.fontSize = '12px';
+                  label.innerText = 'IoU: ' + Number(state.iou_map[r.id]).toFixed(2);
+                  el.appendChild(label);
+              }
+              overlayPred.appendChild(el);
+          } else if (!r.is_prediction) {
+              if (!r.is_prediction || config.apiPrefix !== '/evaluation-overlap') overlay.appendChild(el);
+          }
+      } else {
+
+      }
       // Add resize handles if selected
       if (overlay.dataset.selected === r.id && rectCanUseDrawModeTools(r)) {
         const cursors = { nw:'nwse-resize', n:'ns-resize', ne:'nesw-resize', e:'ew-resize', se:'nwse-resize', s:'ns-resize', sw:'nesw-resize', w:'ew-resize' };
@@ -1755,7 +1822,7 @@ function renderRects() {
           el.appendChild(h);
         }
       }
-    overlay.appendChild(el);
+    if (!r.is_prediction || config.apiPrefix !== '/evaluation-overlap') overlay.appendChild(el);
   }
 }
 
@@ -1851,6 +1918,9 @@ function renderSepsInspector(r){
     if (img.getAttribute('src') !== doc.image_url) {
       img.src = doc.image_url;
     }
+    if (imgPred && imgPred.getAttribute('src') !== doc.image_url) {
+      imgPred.src = doc.image_url;
+    }
     await waitForWorkspaceImageLoad();
   }
 
@@ -1868,6 +1938,13 @@ function renderSepsInspector(r){
     hint.style.display = 'none';
     hideCreate();
     stage.style.display = 'block';
+    if (document.getElementById('left-pane')) {
+        document.getElementById('left-pane').style.display = 'block';
+    }
+    if (document.getElementById('right-pane') && config.apiPrefix === "/evaluation-overlap") {
+        document.getElementById('right-pane').style.display = 'block';
+        if (stagePred) stagePred.style.display = 'block';
+    }
     await refreshWorkspaceImageFromDoc(doc);
     // Convert pixel rects to normalized rects for display
     const W = state.img.naturalW, H = state.img.naturalH;
@@ -1894,6 +1971,9 @@ function renderSepsInspector(r){
       let id = String(raw.id ?? raw._id ?? '').trim();
       if (!id) {
         id = `r-${(anonCounter++).toString(36).padStart(5, '0')}`;
+      }
+      if (flags.is_prediction && !id.startsWith('pred-')) {
+          id = 'pred-' + id;
       }
       const xPx = getNumber(raw.x, getNumber(raw.left, 0));
       const yPx = getNumber(raw.y, getNumber(raw.top, 0));
@@ -1939,6 +2019,7 @@ function renderSepsInspector(r){
       if (flags.extract_text) base.extract_text = true;
       if (flags.reference) base.reference = true;
       if (flags.noise) base.noise = true;
+      if (flags.is_prediction) base.is_prediction = true;
       rectMap.set(id, base);
     };
 
@@ -1946,6 +2027,23 @@ function renderSepsInspector(r){
     extractList.forEach((r) => addRect(r, { extract_text: true }));
     referenceList.forEach((r) => addRect(r, { reference: true }));
     noiseList.forEach((r) => addRect(r, { noise: true }));
+
+    if (config.apiPrefix === "/evaluation-overlap") {
+      state.iou_map = {};
+      if (doc.evaluation && doc.evaluation.rectangles_metrics) {
+          doc.evaluation.rectangles_metrics.forEach(m => {
+              if (m.pred_id) state.iou_map['pred-' + m.pred_id] = m.iou;
+              if (m.id && m.iou !== undefined) state.iou_map[m.id] = m.iou;
+          });
+      }
+      
+      const p_extract = Array.isArray(doc.predicted_extract_text) ? doc.predicted_extract_text : [];
+      p_extract.forEach(r => addRect(r, { is_prediction: true, extract_text: true }));
+      const p_refs = Array.isArray(doc.predicted_references) ? doc.predicted_references : [];
+      p_refs.forEach(r => addRect(r, { is_prediction: true, reference: true }));
+      const p_noise = Array.isArray(doc.predicted_noise) ? doc.predicted_noise : [];
+      p_noise.forEach(r => addRect(r, { is_prediction: true, noise: true }));
+    }
 
     state.rects = Array.from(rectMap.values());
     titleInp.value = doc.name || 'Untitled API';
@@ -2005,7 +2103,12 @@ function renderSepsInspector(r){
   function setZoom(newZoom, anchorX=null, anchorY=null){
     const minZ = 0.2, maxZ = 5;
     newZoom = Math.max(minZ, Math.min(maxZ, +newZoom || 1));
-    const rect = workspace.getBoundingClientRect();
+    let rect = workspace.getBoundingClientRect();
+    const isEval = config.apiPrefix === "/evaluation-overlap";
+    const leftPane = document.getElementById('left-pane');
+    if (isEval && leftPane && leftPane.style.display !== 'none') {
+        rect = leftPane.getBoundingClientRect();
+    }
     const px = (anchorX == null ? rect.width/2 : anchorX);
     const py = (anchorY == null ? rect.height/2 : anchorY);
     const imagePoint = workspaceCoordsToImagePx(px, py, { clamp: false });
@@ -2052,7 +2155,22 @@ function renderSepsInspector(r){
   // Wheel / trackpad zoom (including pinch on many browsers)
   workspace.addEventListener('wheel', (ev) => {
     ev.preventDefault();
-    const rect = workspace.getBoundingClientRect();
+    let rect = workspace.getBoundingClientRect();
+    
+    // In dual view, calculate relative to the specific pane they hover over
+    const isEval = config.apiPrefix === "/evaluation-overlap";
+    const leftPane = document.getElementById('left-pane');
+    const rightPane = document.getElementById('right-pane');
+    if (isEval && leftPane && rightPane && leftPane.style.display !== 'none') {
+        const lpRect = leftPane.getBoundingClientRect();
+        const rpRect = rightPane.getBoundingClientRect();
+        if (ev.clientX >= rpRect.left) {
+            rect = rpRect;
+        } else {
+            rect = lpRect;
+        }
+    }
+    
     const px = ev.clientX - rect.left; const py = ev.clientY - rect.top;
     const factor = Math.exp(-(ev.deltaY || 0) * 0.001);
     setZoom(state.zoom * factor, px, py);
@@ -2165,7 +2283,7 @@ function renderSepsInspector(r){
       ev.preventDefault(); ev.stopPropagation(); return;
     }
     if (state.mode !== 'draw') return;
-    const el = document.createElement('div'); el.className = 'rect selected'; overlay.appendChild(el);
+    const el = document.createElement('div'); el.className = 'rect selected'; if (!r.is_prediction || config.apiPrefix !== '/evaluation-overlap') overlay.appendChild(el);
     drawing = { startX: gx, startY: gy, el };
     overlay.dataset.selected = '';
     for (const r of overlay.querySelectorAll('.rect')) r.classList.remove('selected');

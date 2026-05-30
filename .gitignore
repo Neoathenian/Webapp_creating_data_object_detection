@@ -182,3 +182,5 @@ env.prod
 local_storage/
 image_db/
 detection_photos/
+Black_and_white_Talon/
+outputs/

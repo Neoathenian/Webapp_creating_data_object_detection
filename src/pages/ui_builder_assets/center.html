@@ -120,9 +120,19 @@ with image_path.open("rb") as f:
   </div>
     <div class='workspace mode-draw' id='workspace'>
       <div class='hint' id='workspace-hint'>Select an API from the left or create a new one.</div>
-      <div class='stage' id='stage' style='display:none;'>
-        <img id='workspace-img' src='' alt='document' />
-        <div class='overlay' id='overlay'></div>
+      <div id='stage-container' style='display: flex; gap: 10px; width: 100%; height: 100%;'>
+        <div id='left-pane' style='flex: 1; position: relative; overflow: hidden; display: none;'>
+          <div class='stage' id='stage'>
+            <img id='workspace-img' src='' alt='document' />
+            <div class='overlay' id='overlay'></div>
+          </div>
+        </div>
+        <div id='right-pane' style='flex: 1; position: relative; overflow: hidden; display: none;'>
+          <div class='stage' id='stage-prediction'>
+            <img id='workspace-img-prediction' src='' alt='document' />
+            <div class='overlay' id='overlay-prediction'></div>
+          </div>
+        </div>
       </div>
     </div>
 </div>

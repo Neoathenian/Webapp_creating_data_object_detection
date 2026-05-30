@@ -64,11 +64,12 @@ from src.payment_router import payment_router
 from src.mount_gradio_app import mount_gradio_app
 from src.api_builder_router import router as api_builder_router
 from src.data_collector_router import router as data_collector_router
+from src.evaluation_overlap_router import router as evaluation_overlap_router
 from src.api_key_handling import (
     builder_router as api_key_router,
     external_router as external_api_router,
 )
-from src.pages.ui_builder import make_builder_app, make_data_collector_app
+from src.pages.ui_builder import make_builder_app, make_data_collector_app, make_evaluation_overlap_app
 
 # --- lifespan manages DB connector/engine safely (no globals)
 from src.ledger_db_access import init_payment_db_state, shutdown_payment_db_state
@@ -98,6 +99,7 @@ app.include_router(payment_router)
 # --- API Builder routes
 app.include_router(api_builder_router)
 app.include_router(data_collector_router)
+app.include_router(evaluation_overlap_router)
 app.include_router(api_key_router)
 app.include_router(external_api_router)
 
@@ -126,6 +128,7 @@ async def favicon() -> FileResponse:
 # --- Simple pages
 protected_app = make_builder_app()  # Replace protected area with the builder UI
 data_collector_app = make_data_collector_app()
+evaluation_overlap_app = make_evaluation_overlap_app()
 profile_app   = make_profile_app()
 api_keys_page = make_api_keys_app()
 buy_page      = make_payment_page()
@@ -135,6 +138,7 @@ login_page    = make_login_page()
 session_secret = get_secret("SESSION_SECRET", default="dev-session-secret")
 mount_gradio_app(app, protected_app, "/app", secret_key=session_secret)
 mount_gradio_app(app, data_collector_app, "/data-collector", secret_key=session_secret)
+mount_gradio_app(app, evaluation_overlap_app, "/evaluation-overlap", secret_key=session_secret)
 mount_gradio_app(app, profile_app,   "/profile", secret_key=session_secret)
 mount_gradio_app(app, api_keys_page, "/api-keys", secret_key=session_secret)
 mount_gradio_app(app, buy_page,      "/buy", secret_key=session_secret)

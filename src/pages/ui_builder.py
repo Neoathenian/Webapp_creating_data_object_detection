@@ -115,3 +115,44 @@ def make_data_collector_app() -> gr.Blocks:
         app.load(_header, outputs=[hdr])
 
     return app
+
+
+def make_evaluation_overlap_app() -> gr.Blocks:
+    config = {
+        "apiPrefix": "/evaluation-overlap",
+        "pagePath": "/evaluation-overlap",
+        "sidebarTitle": "Evaluation overlap",
+        "newButtonText": "+ Add files",
+        "titlePlaceholder": "Sample name",
+        "uploadPrompt": "Add images for the selected template",
+        "emptyHint": "Choose a template, then add images to evaluate.",
+        "deleteLabel": "image",
+        "showIntegration": False,
+        "enableCollectorControls": True,
+        "autoGenerateOnCreate": False,
+    }
+    with gr.Blocks(title="Pattern2json Evaluation Overlap") as app:
+        hdr = gr.HTML()
+
+        gr.HTML(value=STYLES_HTML)
+        gr.HTML(value=_config_script(config))
+        gr.HTML("<div id='builder-root'></div>")
+        gr.HTML(value=SIDEBAR_HTML)
+        gr.HTML(value=CENTER_HTML)
+        gr.HTML(value=INSPECTOR_HTML)
+
+        with gr.Column(visible=False) as _hidden_mount:
+            uploader = Uploader_Display(elem_id="new-api-upload", accept="image/*", height=280, with_border="solid")
+
+        app.load(
+            None,
+            js=BUILDER_JS,
+            outputs=[],
+        )
+
+        def _header(request: gr.Request):
+            return render_header(path="/evaluation-overlap", request=request)
+        app.load(_header, outputs=[hdr])
+
+    return app
+
