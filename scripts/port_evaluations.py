@@ -20,7 +20,7 @@ def port_evaluations():
             if not template_dir.is_dir(): continue
             for item_dir in template_dir.iterdir():
                 if not item_dir.is_dir(): continue
-                doc_path = item_dir / "doc.json"
+                doc_path = item_dir / "bboxes.json"
                 if not doc_path.exists(): continue
                 
                 try:

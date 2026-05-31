@@ -1,7 +1,7 @@
 Google Cloud Storage for API Builder
 ====================================
 
-This app now stores API builder data (image + doc.json) in a GCS bucket.
+This app now stores API builder data (image + bboxes.json) in a GCS bucket.
 
 - Default bucket: `api_information_storage` (override with env `API_STORAGE_BUCKET`).
 - Service account key: `secrets/api_bucket_db_key.json` (override with env `API_BUCKET_KEY_FILE`).
@@ -24,9 +24,9 @@ pip install google-cloud-storage
 How it works
 ------------
 
-- On create: server generates a unique random API name and stores under `gs://<bucket>/<user_id>/<api_name>/` with `image.<ext>` and `doc.json`.
-- On save: the `doc.json` is updated. If the API name changes, the server moves the folder to the new `<api_name>` (and ensures uniqueness by adding a short suffix when needed).
-- On list/load: the server lists `<user_id>/*/doc.json` and returns docs. Thumbnails/images are proxied via `/builder/images/{api_id}` so the bucket can remain private.
+- On create: server generates a unique random API name and stores under `gs://<bucket>/<user_id>/<api_name>/` with `image.<ext>` and `bboxes.json`.
+- On save: the `bboxes.json` is updated. If the API name changes, the server moves the folder to the new `<api_name>` (and ensures uniqueness by adding a short suffix when needed).
+- On list/load: the server lists `<user_id>/*/bboxes.json` and returns docs. Thumbnails/images are proxied via `/builder/images/{api_id}` so the bucket can remain private.
 
 Notes
 -----

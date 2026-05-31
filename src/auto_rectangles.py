@@ -225,8 +225,6 @@ def generate_rectangles_from_image_bytes(
                 "y": y,
                 "w": w,
                 "h": h,
-                "width": w,
-                "height": h,
                 "seps": [],
                 "extract_text": True,
             }

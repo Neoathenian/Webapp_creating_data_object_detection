@@ -2283,7 +2283,7 @@ function renderSepsInspector(r){
       ev.preventDefault(); ev.stopPropagation(); return;
     }
     if (state.mode !== 'draw') return;
-    const el = document.createElement('div'); el.className = 'rect selected'; if (!r.is_prediction || config.apiPrefix !== '/evaluation-overlap') overlay.appendChild(el);
+    const el = document.createElement('div'); el.className = 'rect selected'; overlay.appendChild(el);
     drawing = { startX: gx, startY: gy, el };
     overlay.dataset.selected = '';
     for (const r of overlay.querySelectorAll('.rect')) r.classList.remove('selected');

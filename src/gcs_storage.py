@@ -155,13 +155,13 @@ def copy_blob(src_blob: str, dst_blob: str, *, delete_src: bool = False) -> None
 
 def iter_user_docs(uid: str) -> Iterable[Dict[str, Any]]:
     """
-    Yield parsed JSON docs for a user by scanning `<uid>/*/doc.json`.
+    Yield parsed JSON docs for a user by scanning `<uid>/*/bboxes.json`.
     """
     if os.environ["API_STORAGE_MODE"] == "local":
         user_root = LOCAL_STORAGE_DIR / uid
         if not user_root.exists():
             return
-        for path in user_root.rglob("doc.json"):
+        for path in user_root.rglob("bboxes.json"):
             if not path.is_file():
                 continue
             try:
@@ -176,7 +176,7 @@ def iter_user_docs(uid: str) -> Iterable[Dict[str, Any]]:
     prefix = f"{uid}/"
     for blob in client.list_blobs(bucket, prefix=prefix):
         name = blob.name or ""
-        if not name.endswith("/doc.json"):
+        if not name.endswith("/bboxes.json"):
             continue
         try:
             raw = blob.download_as_bytes()
@@ -193,7 +193,7 @@ def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]
         user_root = LOCAL_STORAGE_DIR / uid
         if not user_root.exists():
             return None
-        for path in user_root.rglob("doc.json"):
+        for path in user_root.rglob("bboxes.json"):
             if not path.is_file():
                 continue
             try:
@@ -209,7 +209,7 @@ def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]
     prefix = f"{uid}/"
     for blob in client.list_blobs(bucket, prefix=prefix):
         name = blob.name or ""
-        if not name.endswith("/doc.json"):
+        if not name.endswith("/bboxes.json"):
             continue
         try:
             raw = blob.download_as_bytes()
@@ -224,7 +224,7 @@ def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]
 def find_doc_by_name(uid: str, api_name: str) -> Optional[Tuple[Dict[str, Any], str]]:
     """Return (doc, blob_name) for the given API folder name."""
     if os.environ["API_STORAGE_MODE"] == "local":
-        path = LOCAL_STORAGE_DIR / uid / api_name / "doc.json"
+        path = LOCAL_STORAGE_DIR / uid / api_name / "bboxes.json"
         if not path.is_file():
             return None
         try:
@@ -235,7 +235,7 @@ def find_doc_by_name(uid: str, api_name: str) -> Optional[Tuple[Dict[str, Any], 
             return None
     client = storage_client()
     bucket = get_bucket()
-    blob_name = f"{uid}/{api_name}/doc.json"
+    blob_name = f"{uid}/{api_name}/bboxes.json"
     blob = bucket.blob(blob_name)
     if not blob.exists(client):
         return None

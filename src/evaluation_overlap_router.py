@@ -41,7 +41,7 @@ router = APIRouter(prefix="/evaluation-overlap", tags=["evaluation-overlap"])
 
 
 def _doc_blob_by_name(uid: str, item_name: str) -> str:
-    return f"{uid}/{COLLECTOR_ROOT}/{item_name}/doc.json"
+    return f"{uid}/{COLLECTOR_ROOT}/{item_name}/bboxes.json"
 
 
 def _collector_image_blob_by_name(uid: str, item_name: str, ext: str) -> str:
@@ -176,7 +176,7 @@ def _run_evaluation(template_doc: Dict[str, Any], item_doc: Dict[str, Any]) -> D
 
     with tempfile.TemporaryDirectory(prefix="collector-eval-") as td:
         temp_dir = Path(td)
-        template_doc_path = temp_dir / "template_doc.json"
+        template_doc_path = temp_dir / "template_bboxes.json"
         template_doc_path.write_text(json.dumps(template_doc, ensure_ascii=False), encoding="utf-8")
         template_image = _blob_to_temp_file(template_doc.get("image_blob") or "", ".template.png", temp_dir)
         scene_image = _blob_to_temp_file(item_doc.get("image_blob") or "", ".scene.png", temp_dir)

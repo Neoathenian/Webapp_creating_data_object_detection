@@ -48,7 +48,7 @@ def _now_iso() -> str:
 
 
 def _doc_blob_by_name(uid: str, api_name: str) -> str:
-    return f"{uid}/{api_name}/doc.json"
+    return f"{uid}/{api_name}/bboxes.json"
 
 
 def _image_blob_by_name(uid: str, api_name: str, ext: str) -> str:
@@ -128,8 +128,6 @@ def _clean_rect(rect: Dict[str, Any]) -> Dict[str, Any]:
     data["y"] = y_int
     data["w"] = w_int
     data["h"] = h_int
-    data["width"] = w_int
-    data["height"] = h_int
     theta_val = data.get("θ", data.get("theta", 0))
     try:
         theta_num = float(theta_val)
@@ -425,7 +423,7 @@ def update_api(api_id: str, upd: ApiUpdate, request: Request):
                     copy_blob(old_img_blob, new_img_blob, delete_src=False)
                 except Exception:
                     pass
-            # Update fields and save new doc.json
+            # Update fields and save new bboxes.json
             old_prefix = f"{uid}/{doc.get('name')}/"
             doc["name"] = new_name
             doc["image_blob"] = new_img_blob
