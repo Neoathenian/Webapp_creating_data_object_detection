@@ -37,6 +37,7 @@ def make_builder_app() -> gr.Blocks:
         "deleteLabel": "API",
         "showIntegration": True,
         "enableCollectorControls": False,
+        "enableCropBboxes": False,
         "autoGenerateOnCreate": False,
     }
     with gr.Blocks(title="Pattern2json") as app:
@@ -89,6 +90,7 @@ def make_data_collector_app() -> gr.Blocks:
         "deleteLabel": "image",
         "showIntegration": False,
         "enableCollectorControls": True,
+        "enableCropBboxes": True,
         "autoGenerateOnCreate": False,
     }
     with gr.Blocks(title="Pattern2json Data collector") as app:
@@ -129,6 +131,7 @@ def make_evaluation_overlap_app() -> gr.Blocks:
         "deleteLabel": "image",
         "showIntegration": False,
         "enableCollectorControls": True,
+        "enableCropBboxes": False,
         "autoGenerateOnCreate": False,
     }
     with gr.Blocks(title="Pattern2json Evaluation Overlap") as app:
@@ -155,4 +158,3 @@ def make_evaluation_overlap_app() -> gr.Blocks:
         app.load(_header, outputs=[hdr])
 
     return app
-

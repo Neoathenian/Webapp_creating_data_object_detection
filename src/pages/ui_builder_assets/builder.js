@@ -18,6 +18,7 @@ async () => {
         deleteLabel: 'image',
         showIntegration: false,
         enableCollectorControls: true,
+        enableCropBboxes: false,
         autoGenerateOnCreate: false,
       };
   } else if (isCollector) {
@@ -32,6 +33,7 @@ async () => {
         deleteLabel: 'image',
         showIntegration: false,
         enableCollectorControls: true,
+        enableCropBboxes: true,
         autoGenerateOnCreate: false,
       };
   } else {
@@ -46,6 +48,7 @@ async () => {
         deleteLabel: 'API',
         showIntegration: true,
         enableCollectorControls: false,
+        enableCropBboxes: false,
         autoGenerateOnCreate: false,
       };
   }
@@ -70,6 +73,7 @@ async () => {
     loaded: false,
     deleting: false,
     evaluating: false,
+    cropping: false,
     templates: [],
     selectedTemplate: null,
   };
@@ -121,6 +125,7 @@ async () => {
   const btnRotateImage = document.getElementById('btn-rotate-image');
   const btnGenerateRects = document.getElementById('btn-generate-rects');
   const btnEvaluateAll = document.getElementById('btn-evaluate-all');
+  const btnCropBboxes = document.getElementById('btn-crop-bboxes');
   const evaluateAllPopup = document.getElementById('evaluate-all-popup');
   const evaluateAllBackdrop = document.getElementById('evaluate-all-backdrop');
   const evaluateAllMode = document.getElementById('evaluate-all-mode');
@@ -147,6 +152,7 @@ async () => {
   const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
 
   document.body.classList.toggle('collector-enabled', !!config.enableCollectorControls);
+  document.body.classList.toggle('crop-bboxes-enabled', !!config.enableCollectorControls && !!config.enableCropBboxes);
   if (sidebarTitle && config.sidebarTitle) sidebarTitle.textContent = config.sidebarTitle;
   if (btnNew && config.newButtonText) btnNew.textContent = config.newButtonText;
   if (titleInp && config.titlePlaceholder) titleInp.placeholder = config.titlePlaceholder;
@@ -419,9 +425,10 @@ async () => {
     const hasTemplate = !!selectedTemplateId();
     const navigable = (state.apis || []).filter((item) => item && !item.pending && item.id);
     const currentIndex = navigable.findIndex((item) => item.id === state.selected);
-    if (btnNew) btnNew.disabled = !hasTemplate;
-    if (btnGenerateRects) btnGenerateRects.disabled = !hasTemplate || !state.selected || state.evaluating || String(state.selected).startsWith('pending-');
-    if (btnEvaluateAll) btnEvaluateAll.disabled = !hasTemplate || state.evaluating || !state.apis.some((item) => item && !item.pending && item.id);
+    if (btnNew) btnNew.disabled = !hasTemplate || state.cropping;
+    if (btnGenerateRects) btnGenerateRects.disabled = !hasTemplate || !state.selected || state.evaluating || state.cropping || String(state.selected).startsWith('pending-');
+    if (btnEvaluateAll) btnEvaluateAll.disabled = !hasTemplate || state.evaluating || state.cropping || !state.apis.some((item) => item && !item.pending && item.id);
+    if (btnCropBboxes) btnCropBboxes.disabled = !config.enableCropBboxes || !hasTemplate || state.evaluating || state.cropping;
     if (btnNormalizeRectAngles) btnNormalizeRectAngles.disabled = state.evaluating || !state.selected || !(state.rects || []).length;
     if (btnPrevImage) btnPrevImage.disabled = state.evaluating || currentIndex <= 0;
     if (btnNextImage) btnNextImage.disabled = state.evaluating || currentIndex < 0 || currentIndex >= navigable.length - 1;
@@ -765,6 +772,51 @@ async () => {
     }
   }
 
+  async function cropBboxesForTemplate() {
+    if (!config.enableCollectorControls || !config.enableCropBboxes) return;
+    const templateId = selectedTemplateId();
+    if (!templateId) {
+      alert('Choose a template before cropping bboxes.');
+      return;
+    }
+    if (state.dirty) {
+      alert('Save current rectangle edits before cropping. Crop bboxes only exports saved bboxes and does not update the database.');
+      return;
+    }
+
+    state.cropping = true;
+    setCollectorActionState();
+    setCollectorStatus('Cropping bboxes...');
+    try {
+      const resp = await fetch(apiUrl(`/templates/${encodeURIComponent(templateId)}/crop-bboxes`), { method: 'POST' });
+      if (!resp.ok) {
+        let detail = '';
+        try {
+          const payload = await resp.json();
+          detail = payload && payload.detail ? String(payload.detail) : '';
+        } catch {}
+        throw new Error(detail || 'crop');
+      }
+      const payload = await resp.json();
+      const crops = Number(payload.crops || 0);
+      const processed = Number(payload.processed_items || 0);
+      const total = Number(payload.items || 0);
+      const errorCount = Number(payload.error_count || 0);
+      const outputDir = payload.output_dir ? String(payload.output_dir) : 'crops';
+      const base = crops === 1
+        ? `Cropped 1 bbox from ${processed}/${total} images`
+        : `Cropped ${crops} bboxes from ${processed}/${total} images`;
+      setCollectorStatus(errorCount ? `${base} (${errorCount} errors) -> ${outputDir}` : `${base} -> ${outputDir}`, errorCount > 0);
+    } catch (err) {
+      console.error(err);
+      setCollectorStatus('Crop bboxes failed', true);
+      alert(`Failed to crop bboxes${err && err.message && err.message !== 'crop' ? `: ${err.message}` : '.'}`);
+    } finally {
+      state.cropping = false;
+      setCollectorActionState();
+    }
+  }
+
   function openEvaluateAllPopup() {
     if (!evaluateAllPopup) return;
     evaluateAllPopup.classList.remove('hidden');
@@ -917,6 +969,7 @@ async () => {
   if (btnRotateImage) btnRotateImage.onclick = () => { rotateImageClockwise(); };
   if (btnGenerateRects) btnGenerateRects.onclick = () => { evaluateCurrentItem(); };
   if (btnEvaluateAll) btnEvaluateAll.onclick = () => { openEvaluateAllPopup(); };
+  if (btnCropBboxes) btnCropBboxes.onclick = () => { cropBboxesForTemplate(); };
   if (btnEvaluateAllCancel) btnEvaluateAllCancel.onclick = () => { closeEvaluateAllPopup(); };
   if (evaluateAllBackdrop) evaluateAllBackdrop.onclick = () => { closeEvaluateAllPopup(); };
   if (btnEvaluateAllStart) btnEvaluateAllStart.onclick = async () => {
@@ -962,12 +1015,16 @@ async () => {
       void triggerSaveShortcut(active);
       return;
     }
-    if (shortcut && !e.altKey && !e.shiftKey && config.enableCollectorControls && !editingShortcutTarget && c) {
+    if (shortcut && !e.altKey && !e.shiftKey && !editingShortcutTarget && c) {
       if (copySelectedRect()) e.preventDefault();
       return;
     }
-    if (shortcut && !e.altKey && !e.shiftKey && config.enableCollectorControls && !editingShortcutTarget && v) {
+    if (shortcut && !e.altKey && !e.shiftKey && !editingShortcutTarget && v) {
       if (pasteRectClipboard()) e.preventDefault();
+      return;
+    }
+    if (!shortcut && !e.altKey && !e.shiftKey && !editingShortcutTarget && (e.key === 'Delete' || e.key === 'Backspace')) {
+      if (deleteSelectedRect()) e.preventDefault();
       return;
     }
     if (shortcut && z) { e.preventDefault(); undo(); }
@@ -1366,8 +1423,20 @@ async () => {
     return 'r-' + Math.random().toString(36).slice(2, 9);
   }
 
+  function deleteSelectedRect() {
+    const id = overlay.dataset.selected;
+    if (!id) return false;
+    const rIdx = state.rects.findIndex(r => r.id === id);
+    if (rIdx < 0) return false;
+    try { history.undo.push(cloneRects()); history.redo.length = 0; } catch {}
+    state.rects.splice(rIdx, 1);
+    clearSelection();
+    renderRects();
+    markDirty(true);
+    return true;
+  }
+
   function copySelectedRect() {
-    if (!config.enableCollectorControls) return false;
     const rect = selectedRectData();
     if (!rect) return false;
     rectClipboard = JSON.parse(JSON.stringify(rect));
@@ -1375,7 +1444,7 @@ async () => {
   }
 
   function pasteRectClipboard() {
-    if (!config.enableCollectorControls || !rectClipboard || !state.selected) return false;
+    if (!rectClipboard || !state.selected) return false;
     if (!state.img.naturalW || !state.img.naturalH) return false;
     const next = JSON.parse(JSON.stringify(rectClipboard));
     next.id = makeRectId();

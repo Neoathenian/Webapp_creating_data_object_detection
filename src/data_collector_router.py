@@ -3,16 +3,20 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import math
 import os
+import re
 import subprocess
 import tempfile
 import uuid
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi import Request
 from fastapi.responses import Response
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
 
 from src.api_builder_router import (
@@ -36,6 +40,7 @@ from src.gcs_storage import (
 
 COLLECTOR_KIND = "data_collector"
 COLLECTOR_ROOT = "data_collector"
+_UNSAFE_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 router = APIRouter(prefix="/data-collector", tags=["data-collector"])
 
@@ -143,6 +148,177 @@ def _find_duplicate(uid: str, template_id: str, digest: str) -> Optional[Dict[st
     return None
 
 
+def _crop_output_root() -> Path:
+    configured = os.getenv("CROP_OUTPUT_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(__file__).resolve().parents[1] / "crops"
+
+
+def _safe_path_part(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    text = _UNSAFE_PATH_CHARS.sub("-", text)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    return text[:120] or fallback
+
+
+def _item_output_folder_name(doc: Dict[str, Any]) -> str:
+    raw = doc.get("original_filename") or doc.get("name") or doc.get("storage_name") or doc.get("id")
+    base = Path(str(raw or "").replace("\\", "/")).name
+    stem = Path(base).stem or base
+    fallback = str(doc.get("id") or "image")[:12] or "image"
+    return _safe_path_part(stem, fallback)
+
+
+def _rect_name(rect: Dict[str, Any], index: int) -> str:
+    return _safe_path_part(rect.get("name"), f"crop-{index + 1}")
+
+
+def _named_crop_rects(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    normalized = _normalize_doc_structure(dict(doc))
+    rects: List[Dict[str, Any]] = []
+    seen_ids: Set[str] = set()
+    for group_name in ("extract_text", "references", "noise"):
+        for rect in normalized.get(group_name, []) or []:
+            if not isinstance(rect, dict):
+                continue
+            if not str(rect.get("name") or "").strip():
+                continue
+            rid = str(rect.get("id") or "")
+            if rid and rid in seen_ids:
+                continue
+            if rid:
+                seen_ids.add(rid)
+            rects.append(rect)
+    return rects
+
+
+def _rect_float(rect: Dict[str, Any], key: str, fallback: float = 0.0) -> float:
+    try:
+        value = rect.get(key, rect.get({"x": "left", "y": "top", "w": "width", "h": "height"}.get(key, key), fallback))
+        num = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return num if math.isfinite(num) else fallback
+
+
+def _crop_rect(image: Image.Image, rect: Dict[str, Any]) -> Image.Image:
+    x = int(round(_rect_float(rect, "x")))
+    y = int(round(_rect_float(rect, "y")))
+    w = max(1, int(round(_rect_float(rect, "w", 1.0))))
+    h = max(1, int(round(_rect_float(rect, "h", 1.0))))
+    theta = _rect_float(rect, "θ", _rect_float(rect, "theta", 0.0))
+
+    source = image.convert("RGB")
+    angle = math.radians(theta)
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+    cx = x + (w / 2.0)
+    cy = y + (h / 2.0)
+    coeffs = (
+        cos_a,
+        -sin_a,
+        cx - (cos_a * w / 2.0) + (sin_a * h / 2.0),
+        sin_a,
+        cos_a,
+        cy - (sin_a * w / 2.0) - (cos_a * h / 2.0),
+    )
+    return source.transform(
+        (w, h),
+        Image.Transform.AFFINE,
+        coeffs,
+        resample=Image.Resampling.BICUBIC,
+        fillcolor=(255, 255, 255),
+    )
+
+
+def _load_image_from_blob(blob_name: str) -> Image.Image:
+    try:
+        data = download_bytes(blob_name)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Image not found") from exc
+    try:
+        with Image.open(BytesIO(data)) as img:
+            return ImageOps.exif_transpose(img).copy()
+    except UnidentifiedImageError as exc:
+        raise HTTPException(status_code=422, detail="Stored image could not be opened") from exc
+
+
+def _crop_template_item_bboxes(uid: str, template_id: str) -> Dict[str, Any]:
+    template = _find_template(uid, template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    template_name = str(template.get("name") or template_id or "template")
+    template_dir = _crop_output_root() / _safe_path_part(template_name, "template")
+    items = [_normalize_doc_structure(doc) for doc in _list_items(uid) if _item_matches_template(doc, template_id)]
+
+    folder_counts: Dict[str, int] = {}
+    processed_items = 0
+    crop_count = 0
+    skipped_items = 0
+    errors: List[Dict[str, Any]] = []
+
+    for doc in items:
+        rects = _named_crop_rects(doc)
+        if not rects:
+            skipped_items += 1
+            continue
+
+        folder_base = _item_output_folder_name(doc)
+        folder_count = folder_counts.get(folder_base, 0) + 1
+        folder_counts[folder_base] = folder_count
+        if folder_count == 1:
+            folder_name = folder_base
+        else:
+            suffix = str(doc.get("sha256") or doc.get("id") or folder_count)[:8] or str(folder_count)
+            folder_name = _safe_path_part(f"{folder_base}-{suffix}", f"image-{folder_count}")
+        item_dir = template_dir / folder_name
+
+        try:
+            image = _load_image_from_blob(doc.get("image_blob") or "")
+        except HTTPException as exc:
+            errors.append({"item": doc.get("name") or doc.get("id"), "error": str(exc.detail)})
+            continue
+
+        item_dir.mkdir(parents=True, exist_ok=True)
+        name_counts: Dict[str, int] = {}
+        item_crops = 0
+        for index, rect in enumerate(rects):
+            output_base = _rect_name(rect, index)
+            name_count = name_counts.get(output_base, 0) + 1
+            name_counts[output_base] = name_count
+            filename = f"{output_base}.png" if name_count == 1 else f"{output_base}-{name_count}.png"
+            try:
+                crop = _crop_rect(image, rect)
+                crop.save(item_dir / filename, format="PNG")
+                crop_count += 1
+                item_crops += 1
+            except Exception as exc:
+                errors.append({
+                    "item": doc.get("name") or doc.get("id"),
+                    "rect": rect.get("name") or rect.get("id"),
+                    "error": str(exc),
+                })
+        if item_crops:
+            processed_items += 1
+        else:
+            skipped_items += 1
+
+    return {
+        "ok": True,
+        "template_id": template.get("id"),
+        "template_name": template_name,
+        "output_dir": str(template_dir),
+        "items": len(items),
+        "processed_items": processed_items,
+        "skipped_items": skipped_items,
+        "crops": crop_count,
+        "errors": errors[:50],
+        "error_count": len(errors),
+    }
+
+
 def _object_detection_root() -> Path:
     configured = os.getenv("OBJECT_DETECTION_ROOT", "").strip()
     if configured:
@@ -218,6 +394,12 @@ def list_templates(request: Request):
     items = [_response_template(doc) for doc in _list_templates(uid)]
     items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return items
+
+
+@router.post("/templates/{template_id}/crop-bboxes")
+def crop_template_bboxes(template_id: str, request: Request):
+    uid = _user_id(request)
+    return _crop_template_item_bboxes(uid, template_id)
 
 
 @router.get("/apis")
