@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import contextlib
 import copy
 import json
@@ -28,13 +27,6 @@ def _rect_groups(doc: dict) -> tuple[list[dict], list[dict], list[dict], list[di
         extract_text = [copy.deepcopy(r) for r in legacy if r.get("extract_text", True)]
         noise.extend(copy.deepcopy(r) for r in legacy if not r.get("extract_text", True))
     return rects, extract_text, references, noise
-
-
-def _encode_png_b64(cv2, image) -> str:
-    ok, buffer = cv2.imencode(".png", image)
-    if not ok:
-        raise RuntimeError("Failed to encode evaluated image.")
-    return base64.b64encode(buffer).decode("ascii")
 
 
 def _safe_rect_payload(rect: dict) -> dict:
@@ -280,7 +272,6 @@ def main() -> int:
     payload = {
         "success": score >= 0.2,
         "confidence_score": score,
-        "evaluated_image_base64": _encode_png_b64(cv2, scene_bgr),
         "image_width": int(scene_bgr.shape[1]),
         "image_height": int(scene_bgr.shape[0]),
         "extract_text": map_group(template.extract_text, "extract_text"),

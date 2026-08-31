@@ -30,7 +30,9 @@ def port_evaluations():
                     print(f"Error reading {doc_path}: {e}")
                     continue
                 
-                sha = item_dir.name
+                # Collector folders now use the uploaded filename. Prediction
+                # cache files retain the original 16-character content hash.
+                sha = str(doc.get("sha256") or "")[:16] or item_dir.name
                 
                 found_json = None
                 for p in api_results_dir.rglob(f"{sha}.json"):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import base64
 import hashlib
 import math
 import os
@@ -23,7 +22,6 @@ from src.api_builder_router import (
     ApiUpdate,
     Rect,
     _clean_rotation,
-    _image_blob_by_name,
     _now_iso,
     _normalize_doc_structure,
     _sanitize_rect_input,
@@ -36,6 +34,7 @@ from src.gcs_storage import (
     signed_url,
     upload_bytes,
 )
+from src.data_collector_storage import input_image_blob_name, item_blob_name
 
 
 COLLECTOR_KIND = "data_collector"
@@ -50,7 +49,7 @@ def _doc_blob_by_name(uid: str, item_name: str) -> str:
 
 
 def _collector_image_blob_by_name(uid: str, item_name: str, ext: str) -> str:
-    return _image_blob_by_name(uid, f"{COLLECTOR_ROOT}/{item_name}", ext)
+    return input_image_blob_name(uid, COLLECTOR_ROOT, item_name, ext)
 
 
 def _is_collector_doc(doc: Dict[str, Any]) -> bool:
@@ -101,7 +100,6 @@ def _save_item(doc: Dict[str, Any]) -> None:
 def _response_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
     resp = _normalize_doc_structure(dict(doc))
     raw_blob = resp.get("image_blob") or ""
-    evaluated_blob = resp.get("evaluated_image_blob") or ""
     url = None
     try:
         url = signed_url(raw_blob, minutes=20)
@@ -109,13 +107,6 @@ def _response_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
         url = None
     cache_key = resp.get("updated_at") or resp.get("id") or ""
     resp["image_url"] = url or f"/data-collector/images/{resp.get('id')}?view=raw&v={cache_key}"
-    if evaluated_blob:
-        evaluated_url = None
-        try:
-            evaluated_url = signed_url(evaluated_blob, minutes=20)
-        except Exception:
-            evaluated_url = None
-        resp["evaluated_image_url"] = evaluated_url or f"/data-collector/images/{resp.get('id')}?view=evaluated&v={cache_key}"
     return resp
 
 
@@ -134,11 +125,6 @@ def _item_matches_template(doc: Dict[str, Any], template_id: Optional[str]) -> b
     if not template_id:
         return True
     return str(doc.get("template_id") or "") == str(template_id)
-
-
-def _item_blob_name(template_name: str, digest: str) -> str:
-    safe_template = (template_name or "template").strip().replace("/", "-") or "template"
-    return f"{safe_template}/{digest[:16]}"
 
 
 def _find_duplicate(uid: str, template_id: str, digest: str) -> Optional[Dict[str, Any]]:
@@ -431,6 +417,11 @@ async def create_item(
 
     created: List[Dict[str, Any]] = []
     duplicates: List[Dict[str, Any]] = []
+    occupied_storage_names = {
+        str(doc.get("storage_name"))
+        for doc in _list_items(uid)
+        if doc.get("storage_name")
+    }
     for upload in uploads:
         content_type = (upload.content_type or "").lower()
         if not (content_type.startswith("image/") or upload.filename):
@@ -448,7 +439,13 @@ async def create_item(
             continue
 
         item_id = uuid.uuid4().hex
-        item_name = _item_blob_name(template.get("name") or template_id, digest)
+        item_name = item_blob_name(
+            template.get("name") or template_id,
+            upload.filename,
+            digest,
+            occupied_storage_names,
+        )
+        occupied_storage_names.add(item_name)
         ext = ""
         if upload.filename and "." in upload.filename:
             ext = upload.filename.rsplit(".", 1)[-1]
@@ -579,18 +576,7 @@ def evaluate_item(item_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Template not found")
 
     result = _run_evaluation(template, doc)
-    if result.get("evaluated_image_base64"):
-        try:
-            evaluated_bytes = base64.b64decode(result["evaluated_image_base64"])
-        except Exception:
-            evaluated_bytes = b""
-        if evaluated_bytes:
-            storage_name = doc.get("storage_name") or _item_blob_name(doc.get("template_name") or "template", doc.get("sha256") or uuid.uuid4().hex)
-            evaluated_blob = f"{uid}/{COLLECTOR_ROOT}/{storage_name}/evaluated.png"
-            upload_bytes(evaluated_bytes, evaluated_blob, content_type="image/png")
-            doc["evaluated_image_blob"] = evaluated_blob
-
-    if result.get("evaluated_image_base64"):
+    if any(key in result for key in ("extract_text", "references", "noise")):
         doc["extract_text"] = result.get("extract_text") or []
         doc["references"] = result.get("references") or []
         doc["noise"] = result.get("noise") or []
@@ -652,8 +638,6 @@ def fetch_image(item_id: str, request: Request, view: str = "raw"):
     if doc.get("user_id") != uid:
         raise HTTPException(status_code=403, detail="Forbidden")
     img_blob = doc.get("image_blob") or ""
-    if view == "evaluated" and doc.get("evaluated_image_blob"):
-        img_blob = doc.get("evaluated_image_blob") or img_blob
     try:
         data = download_bytes(img_blob)
     except Exception:
