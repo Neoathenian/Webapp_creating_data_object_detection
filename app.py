@@ -65,6 +65,7 @@ from src.mount_gradio_app import mount_gradio_app
 from src.api_builder_router import router as api_builder_router
 from src.data_collector_router import router as data_collector_router
 from src.evaluation_overlap_router import router as evaluation_overlap_router
+from src.matches_router import router as matches_router
 from src.api_key_handling import (
     builder_router as api_key_router,
     external_router as external_api_router,
@@ -100,6 +101,7 @@ app.include_router(payment_router)
 app.include_router(api_builder_router)
 app.include_router(data_collector_router)
 app.include_router(evaluation_overlap_router)
+app.include_router(matches_router)
 app.include_router(api_key_router)
 app.include_router(external_api_router)
 

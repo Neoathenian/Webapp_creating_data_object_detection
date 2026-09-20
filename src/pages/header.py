@@ -120,7 +120,7 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
         builder_link = '<a href="/templates/" class="hdr-link hdr-link--builder">templates</a>'
         collector_link = '<a href="/data-collector/" class="hdr-link hdr-link--builder">bboxes</a>'
         eval_link = '<a href="/evaluation-overlap/" class="hdr-link hdr-link--builder">Evaluation overlap</a>'
-        left_link = f"{home_link}\n      {builder_link}\n      {collector_link}\n      {eval_link}"
+        left_link = f"{home_link}\n      {builder_link}\n      {collector_link}\n      {eval_link}\n      <a href='/matches/' class='hdr-link hdr-link--builder'>Matches</a>"
     else:
         left_link = ''
 

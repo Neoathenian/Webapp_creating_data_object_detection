@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Matches · Pattern2json</title><link rel="icon" href="/images/Logo.png">
+  <!-- BUILDER STYLES -->
+  <link rel="stylesheet" href="/matches/assets/matches.css">
+</head>
+<body><!-- HEADER -->
+<main id="matches-app">
+  <aside id="sidebar" aria-label="Matches scenes">
+    <h3>Matches</h3>
+    <select id="sample" aria-label="Scene" hidden></select>
+    <ul id="sample-list" class="sidebar-list" aria-label="Scenes"></ul>
+    <p id="dataset-info" class="dataset-info"></p>
+    <details id="confirmed-panel">
+      <summary>Confirmed matches <span id="count">0</span></summary>
+      <div class="list-heading"><button id="export" class="btn small" disabled>Export matches</button></div>
+      <div id="match-list"><p class="empty">Your matches will appear here.</p></div>
+    </details>
+  </aside>
+  <section id="center" aria-label="OCR correspondence editor">
+    <div class="toolbar">
+      <select id="template" aria-label="Template" title="Template"></select>
+      <span class="zoom-wrap"><label for="zoom-range">Zoom</label><input id="zoom-range" class="zoom-range" type="range" min="50" max="1000" value="100"><span id="zoom-label">100%</span></span>
+      <button id="save" class="save-btn" disabled>Save</button>
+      <button id="deselect" class="mode-btn">Clear selection</button>
+      <label class="check"><input type="checkbox" id="labels" checked> Characters</label>
+      <button id="undo" class="mode-btn history-btn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>⟲</button>
+      <button id="redo" class="mode-btn history-btn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>⟳</button>
+      <button id="fit" class="mode-btn icon" title="Fit images" aria-label="Fit images"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"></path></svg></button>
+      <span id="save-state" role="status">No sample loaded</span>
+      <span class="toolbar-spacer"></span>
+      <button id="previous" class="mode-btn navigation-btn" title="Previous scene" aria-label="Previous scene">&lt;</button>
+      <button id="next" class="mode-btn navigation-btn" title="Next scene" aria-label="Next scene">&gt;</button>
+    </div>
+    <div class="workspace">
+      <div id="status" role="status" aria-live="polite">Loading datasets…</div>
+      <div class="image-headings"><span>Template <strong id="template-name"></strong></span><span>Scene <strong id="scene-name"></strong></span></div>
+      <svg id="board" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Template and scene OCR points. Select a point, then a matching point on the other image."></svg>
+      <div class="legend"><span><i class="dot"></i>Available</span><span><i class="dot selected"></i>Selected</span><span>× No available match</span><span><i class="line"></i>Confirmed match</span><span class="gesture">Scroll to zoom · Drag to pan · Esc to deselect</span></div>
+    </div>
+  </section>
+</main><script src="/matches/assets/matches.js" defer></script>
+</body></html>
