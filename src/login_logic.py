@@ -59,7 +59,7 @@ def _ensure_signup_bonus(request: Request, sub: str) -> None:
             pass
 
 
-def add_login_routes(app, app_route: str = "/app"):
+def add_login_routes(app, app_route: str = "/templates"):
     @app.get("/logout")
     async def logout(request: Request):
         request.session.pop("user", None)

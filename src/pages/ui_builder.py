@@ -28,13 +28,13 @@ def _config_script(config: dict) -> str:
 def make_builder_app() -> gr.Blocks:
     config = {
         "apiPrefix": "/builder",
-        "pagePath": "/app",
-        "sidebarTitle": "APIs",
-        "newButtonText": "+ New API",
-        "titlePlaceholder": "API name",
-        "uploadPrompt": "Upload an image to start a new API",
-        "emptyHint": "Select an API from the left or create a new one.",
-        "deleteLabel": "API",
+        "pagePath": "/templates",
+        "sidebarTitle": "Templates",
+        "newButtonText": "+ New template",
+        "titlePlaceholder": "Template name",
+        "uploadPrompt": "Upload an image to start a new template",
+        "emptyHint": "Select a template from the left or create a new one.",
+        "deleteLabel": "template",
         "showIntegration": True,
         "enableCollectorControls": False,
         "enableCropBboxes": False,
@@ -72,7 +72,7 @@ def make_builder_app() -> gr.Blocks:
 
         # Inject header at end to ensure styles loaded
         def _header(request: gr.Request):
-            return render_header(path="/app", request=request)
+            return render_header(path="/templates", request=request)
         app.load(_header, outputs=[hdr])
 
     return app
@@ -82,7 +82,7 @@ def make_data_collector_app() -> gr.Blocks:
     config = {
         "apiPrefix": "/data-collector",
         "pagePath": "/data-collector",
-        "sidebarTitle": "Data collector",
+        "sidebarTitle": "Bboxes",
         "newButtonText": "+ Add files",
         "titlePlaceholder": "Sample name",
         "uploadPrompt": "Add images for the selected template",

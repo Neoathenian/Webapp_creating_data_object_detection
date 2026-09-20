@@ -370,7 +370,7 @@ def checkout_success(
     <html><body style=\"font-family:system-ui\">
     <h2>✅ Payment successful</h2>
     <p>Thanks! Your purchase is complete.</p>
-    <p><a href=\"/app/\">Go to Dashboard</a></p>
+    <p><a href=\"/templates/\">Go to Dashboard</a></p>
     <script>
       (async () => {
         try {
@@ -393,6 +393,6 @@ def checkout_cancel():
     <html><body style="font-family:system-ui">
     <h2>❌ Payment canceled</h2>
     <p>No charge was made.</p>
-    <p><a href="/app/">Back to Dashboard</a></p>
+    <p><a href="/templates/">Back to Dashboard</a></p>
     </body></html>
     """

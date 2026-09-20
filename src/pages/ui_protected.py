@@ -3,7 +3,7 @@ from src.pages.header import render_header
 from src.login_logic import get_user
 
 def _header_app(request: gr.Request):
-    return render_header(path="/app", request=request)
+    return render_header(path="/templates", request=request)
 
 def _show_user(request: gr.Request):
     return gr.update(value=get_user(request))
@@ -11,7 +11,7 @@ def _show_user(request: gr.Request):
 def make_protected_app() -> gr.Blocks:
     with gr.Blocks(title="Pattern2json") as protected_app:
         hdr = gr.HTML()
-        gr.Markdown("### Protected area (/app)")
+        gr.Markdown("### Protected area (/templates)")
 
         with gr.Row():
             balance_box = gr.Textbox(label="Credits", interactive=False)

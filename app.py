@@ -3,7 +3,7 @@ from src.secrets import get_secret
 
 from fastapi import FastAPI
 from fastapi import HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -136,10 +136,18 @@ login_page    = make_login_page()
 
 # Optional: session secret via secret manager (fallback default set in bootstrap)
 session_secret = get_secret("SESSION_SECRET", default="dev-session-secret")
-mount_gradio_app(app, protected_app, "/app", secret_key=session_secret)
+mount_gradio_app(app, protected_app, "/templates", secret_key=session_secret)
 mount_gradio_app(app, data_collector_app, "/data-collector", secret_key=session_secret)
 mount_gradio_app(app, evaluation_overlap_app, "/evaluation-overlap", secret_key=session_secret)
 mount_gradio_app(app, profile_app,   "/profile", secret_key=session_secret)
 mount_gradio_app(app, api_keys_page, "/api-keys", secret_key=session_secret)
 mount_gradio_app(app, buy_page,      "/buy", secret_key=session_secret)
+
+
+@app.get("/app")
+@app.get("/app/")
+def _legacy_app_redirect():
+    return RedirectResponse(url="/templates/")
+
+
 gr.mount_gradio_app(app, login_page, "/")

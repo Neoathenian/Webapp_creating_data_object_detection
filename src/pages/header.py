@@ -117,8 +117,8 @@ def _header_html(user: Optional[dict], path: str, request: Any) -> str:
 
     if user:
         home_link = '<a href="/?home=1" class="hdr-link hdr-link--home">Home</a>'
-        builder_link = '<a href="/app/" class="hdr-link hdr-link--builder">Builder</a>'
-        collector_link = '<a href="/data-collector/" class="hdr-link hdr-link--builder">Data collector</a>'
+        builder_link = '<a href="/templates/" class="hdr-link hdr-link--builder">templates</a>'
+        collector_link = '<a href="/data-collector/" class="hdr-link hdr-link--builder">bboxes</a>'
         eval_link = '<a href="/evaluation-overlap/" class="hdr-link hdr-link--builder">Evaluation overlap</a>'
         left_link = f"{home_link}\n      {builder_link}\n      {collector_link}\n      {eval_link}"
     else:
