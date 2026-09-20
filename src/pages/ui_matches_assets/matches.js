@@ -15,6 +15,7 @@
   const dirty = () => annotationState() !== savedState;
   const status = (message, error = false) => { $('status').textContent = message; $('status').classList.toggle('error', error); };
   const svg = (tag, attrs, parent = board) => { const el = document.createElementNS(ns, tag); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v); parent.appendChild(el); return el; };
+  const wordView = () => !!$('word-view')?.checked;
   const endpoint = () => `/matches/api/pair/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`;
   const clone = value => JSON.parse(JSON.stringify(value));
   const pairKey = pair => `${pair.template_id}:${pair.scene_id}`;
@@ -36,12 +37,15 @@
     return response.json();
   }
   function controls() {
+    const readOnlyWordView = wordView();
     $('save').disabled = !data || busy || !dirty();
-    $('predict').disabled = !data || busy;
-    $('accept-predictions').disabled = !data || busy || !availablePredictions().length;
-    $('undo').disabled = busy || !history.length;
-    $('redo').disabled = busy || !future.length;
+    $('predict').disabled = !data || busy || readOnlyWordView;
+    $('accept-predictions').disabled = !data || busy || readOnlyWordView || !availablePredictions().length;
+    $('undo').disabled = busy || readOnlyWordView || !history.length;
+    $('redo').disabled = busy || readOnlyWordView || !future.length;
     $('export').disabled = !data || busy;
+    $('save').disabled = $('save').disabled || readOnlyWordView;
+    $('deselect').disabled = !data || busy || readOnlyWordView;
     $('show-hidden-points').disabled = busy || !hiddenScenePoints.size;
     if (!hiddenScenePoints.size) $('show-hidden-points').checked = false;
     for (const id of ['template','sample','previous','next']) $(id).disabled = busy;
@@ -244,11 +248,188 @@
     }
     return {used, counts};
   }
+  function buildWordMatches(pointMap) {
+    if (!pairs.length) return [];
+    const templateWidth = Math.max(Number(data.template.width) || 0, 1);
+    const templateHeight = Math.max(Number(data.template.height) || 0, 1);
+    const sceneWidth = Math.max(Number(data.scene.width) || 0, 1);
+    const sceneHeight = Math.max(Number(data.scene.height) || 0, 1);
+
+    const median = values => {
+      if (!values.length) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    };
+
+    const robustBounds = (points, side) => {
+      const dimH = side === 'template' ? templateHeight : sceneHeight;
+      const xs = points.map(p => p.x);
+      const ys = points.map(p => p.y);
+      const yMed = median(ys);
+      const yMad = median(ys.map(value => Math.abs(value - yMed)));
+      const minTol = 0.01 * dimH;
+      const tol = Math.max(minTol, yMad * 2.5);
+      const filtered = points.length >= 3 ? points.filter(p => Math.abs(p.y - yMed) <= tol) : points;
+      const boxPoints = filtered.length ? filtered : points;
+      const fx = boxPoints.map(p => p.x), fy = boxPoints.map(p => p.y);
+      let x0 = Math.min(...fx), y0 = Math.min(...fy), x1 = Math.max(...fx), y1 = Math.max(...fy);
+
+      return {x0, y0, x1, y1};
+    };
+
+
+    const entries = pairs.map((pair, index) => {
+      const left = pointMap.template.get(pair.template_id);
+      const right = pointMap.scene.get(pair.scene_id);
+      if (!left || !right) return null;
+      return {
+        pair,
+        index,
+        left,
+        right,
+        tx: left.x / templateWidth,
+        ty: left.y / templateHeight,
+        sx: right.x / sceneWidth,
+        sy: right.y / sceneHeight,
+      };
+    }).filter(Boolean).sort((a, b) => a.ty - b.ty || a.tx - b.tx || a.index - b.index);
+    if (!entries.length) return [];
+
+    const diffsFor = (arr, key) => {
+      const sorted = [...arr].sort((a, b) => a[key] - b[key]);
+      const diffs = [];
+      for (let i = 1; i < sorted.length; i += 1) {
+        const diff = sorted[i][key] - sorted[i - 1][key];
+        if (diff > 1e-6) diffs.push(diff);
+      }
+      return diffs;
+    };
+
+    const tyMedian = median(diffsFor(entries, 'ty'));
+    const syMedian = median(diffsFor(entries, 'sy'));
+    const lineThresholdTemplate = Math.min(0.024, Math.max(0.0045, tyMedian * 1.35));
+    const lineThresholdScene = Math.min(0.03, Math.max(0.005, syMedian * 1.5));
+
+    const lines = [];
+    for (const entry of entries) {
+      const line = lines[lines.length - 1];
+      if (!line || Math.abs(entry.ty - line.centerTemplateY) > lineThresholdTemplate || Math.abs(entry.sy - line.centerSceneY) > lineThresholdScene) {
+        lines.push({centerTemplateY: entry.ty, centerSceneY: entry.sy, items: [entry]});
+      } else {
+        line.items.push(entry);
+        line.centerTemplateY = (line.centerTemplateY * (line.items.length - 1) + entry.ty) / line.items.length;
+        line.centerSceneY = (line.centerSceneY * (line.items.length - 1) + entry.sy) / line.items.length;
+      }
+    }
+
+    const words = [];
+    for (const line of lines) {
+      line.items.sort((a, b) => a.tx - b.tx || a.ty - b.ty || a.index - b.index);
+      const tDiffs = [];
+      const sDiffs = [];
+      for (let i = 1; i < line.items.length; i += 1) {
+        const tDiff = line.items[i].tx - line.items[i - 1].tx;
+        const sDiff = Math.abs(line.items[i].sx - line.items[i - 1].sx);
+        if (tDiff > 1e-6) tDiffs.push(tDiff);
+        if (sDiff > 1e-6) sDiffs.push(sDiff);
+      }
+      const tMedian = median(tDiffs);
+      const sMedian = median(sDiffs);
+      const wordGapTemplate = Math.min(0.06, Math.max(0.012, tMedian * 2.2));
+      const wordGapScene = Math.min(0.08, Math.max(0.015, sMedian * 2.4));
+
+      let current = [line.items[0]];
+      for (let i = 1; i < line.items.length; i += 1) {
+        const prev = line.items[i - 1], item = line.items[i];
+        const splitByTemplate = item.tx - prev.tx > wordGapTemplate;
+        const splitByScene = Math.abs(item.sx - prev.sx) > wordGapScene;
+        if (splitByTemplate || splitByScene) {
+          words.push(current);
+          current = [item];
+        } else current.push(item);
+      }
+      words.push(current);
+    }
+
+    const splitByVerticalGaps = group => {
+      const queue = [group];
+      const output = [];
+      const findGapSplit = (items, key, threshold) => {
+        if (items.length < 2) return null;
+        const sorted = [...items].sort((a, b) => a[key] - b[key]);
+        let maxGap = 0;
+        let splitIndex = -1;
+        for (let i = 1; i < sorted.length; i += 1) {
+          const gap = sorted[i][key] - sorted[i - 1][key];
+          if (gap > maxGap) {
+            maxGap = gap;
+            splitIndex = i;
+          }
+        }
+        if (splitIndex < 1 || maxGap <= threshold) return null;
+        return {
+          score: maxGap / Math.max(threshold, 1e-6),
+          left: sorted.slice(0, splitIndex),
+          right: sorted.slice(splitIndex),
+        };
+      };
+
+      while (queue.length) {
+        const items = queue.pop();
+        if (items.length < 2) {
+          output.push(items);
+          continue;
+        }
+        const tSplit = findGapSplit(items, 'ty', lineThresholdTemplate * 0.95);
+        const sSplit = findGapSplit(items, 'sy', lineThresholdScene * 0.95);
+        const split = !tSplit ? sSplit : !sSplit ? tSplit : (tSplit.score >= sSplit.score ? tSplit : sSplit);
+        if (!split) {
+          output.push(items);
+          continue;
+        }
+        queue.push(split.left, split.right);
+      }
+      return output;
+    };
+
+    const refinedWords = [];
+    for (const word of words) refinedWords.push(...splitByVerticalGaps(word));
+    refinedWords.sort((a, b) => {
+      const ay = a.reduce((sum, item) => sum + item.ty, 0) / a.length;
+      const by = b.reduce((sum, item) => sum + item.ty, 0) / b.length;
+      if (Math.abs(ay - by) > 1e-6) return ay - by;
+      const ax = a.reduce((sum, item) => sum + item.tx, 0) / a.length;
+      const bx = b.reduce((sum, item) => sum + item.tx, 0) / b.length;
+      return ax - bx;
+    });
+
+    return refinedWords.map((group, index) => {
+      const tplRaw = robustBounds(group.map(entry => entry.left), 'template');
+      const scnRaw = robustBounds(group.map(entry => entry.right), 'scene');
+      const toBoard = (side, box) => {
+        const p0 = position(side, {x: box.x0, y: box.y0});
+        const p1 = position(side, {x: box.x1, y: box.y1});
+        return {x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y};
+      };
+      const tpl = toBoard('template', tplRaw);
+      const scn = toBoard('scene', scnRaw);
+      const labels = side => group.map(entry => side === 'template' ? (entry.left.label || '?') : (entry.right.label || '?')).join('');
+      return {
+        index,
+        templateBox: tpl,
+        sceneBox: scn,
+        templateCenter: {x: (tpl.x0 + tpl.x1) / 2, y: (tpl.y0 + tpl.y1) / 2},
+        sceneCenter: {x: (scn.x0 + scn.x1) / 2, y: (scn.y0 + scn.y1) / 2},
+        templateText: labels('template'),
+        sceneText: labels('scene'),
+      };
+    });
+  }
   function render() {
     if (!data) return;
     revealHiddenPoints = $('show-hidden-points').checked;
     const hideCurrentMatches = $('hide-current-matches').checked;
-    if (hideCurrentMatches && focused?.kind === 'confirmed') focused = null;
     const available = availablePredictions();
     const focusState = focusedPair(available);
     const isolatedPair = focusState?.pair || null;
@@ -256,7 +437,29 @@
     const base = `/matches/api/image/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`;
     for (const side of ['template','scene']) { const l = layout[side]; svg('image',{href:`${base}/${side}`,x:l.x,y:l.y,width:data[side].width*l.scale,height:data[side].height*l.scale}); }
     const pointMap = {template:new Map(data.template.points.map(p=>[p.id,p])),scene:new Map(data.scene.points.map(p=>[p.id,p]))};
-    if (!hideCurrentMatches && focusState?.kind === 'confirmed' && isolatedPair) {
+    if (wordView()) {
+      const words = buildWordMatches(pointMap);
+      words.forEach((word, i) => {
+        const stroke = color(i);
+        svg('path', {d: `M${word.templateCenter.x},${word.templateCenter.y} L${word.sceneCenter.x},${word.sceneCenter.y}`, class: 'word-link', stroke});
+        const tw = Math.max(1, word.templateBox.x1 - word.templateBox.x0);
+        const th = Math.max(1, word.templateBox.y1 - word.templateBox.y0);
+        const sw = Math.max(1, word.sceneBox.x1 - word.sceneBox.x0);
+        const sh = Math.max(1, word.sceneBox.y1 - word.sceneBox.y0);
+        const tPad = Math.max(1, Math.min(6, Math.min(tw, th) * 0.14));
+        const sPad = Math.max(1, Math.min(6, Math.min(sw, sh) * 0.14));
+        svg('rect', {x: word.templateBox.x0 - tPad, y: word.templateBox.y0 - tPad, width: tw + tPad * 2, height: th + tPad * 2, class: 'word-box', stroke});
+        svg('rect', {x: word.sceneBox.x0 - sPad, y: word.sceneBox.y0 - sPad, width: sw + sPad * 2, height: sh + sPad * 2, class: 'word-box', stroke});
+        const leftLabel = svg('text', {x: word.templateBox.x0 - tPad, y: word.templateBox.y0 - tPad - 3, class: 'word-label', fill: stroke});
+        leftLabel.textContent = `W${i + 1}: ${word.templateText}`;
+        const rightLabel = svg('text', {x: word.sceneBox.x0 - sPad, y: word.sceneBox.y0 - sPad - 3, class: 'word-label', fill: stroke});
+        rightLabel.textContent = `W${i + 1}: ${word.sceneText}`;
+      });
+      renderList(); renderPredictions(); controls();
+      status(`Word-to-word view: ${words.length} grouped word match${words.length === 1 ? '' : 'es'}. Editing is disabled in this mode.`);
+      return;
+    }
+    if (focusState?.kind === 'confirmed' && isolatedPair) {
       const index = pairs.findIndex(pair => pairKey(pair) === pairKey(isolatedPair));
       const a = position('template',pointMap.template.get(isolatedPair.template_id)), b = position('scene',pointMap.scene.get(isolatedPair.scene_id));
       svg('path',{d:`M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`,stroke:color(index),class:'match-line',opacity:.9});
@@ -277,7 +480,7 @@
       for (const p of data[side].points) {
         const matched = used[side].has(p.id);
         if (isolatedPair && p.id !== isolatedPair[`${side}_id`]) continue;
-        const isFocusedPairPoint = !hideCurrentMatches && !!isolatedPair && p.id === isolatedPair[`${side}_id`];
+        const isFocusedPairPoint = !!isolatedPair && p.id === isolatedPair[`${side}_id`];
         if (side === 'scene' && hiddenScenePoints.has(p.id) && !revealHiddenPoints && !isFocusedPairPoint) continue;
         if (hideCurrentMatches && matched && !isFocusedPairPoint) continue;
         const available = !!canonical(p.label) && !matched && !!counts[opposite].get(canonical(p.label));
@@ -323,13 +526,13 @@
       svg('rect', {x, y, width, height, class: 'selection-rect'});
     }
     renderList(); renderPredictions(); controls();
-    if (!hideCurrentMatches && focusState?.kind === 'confirmed' && isolatedPair) status(`Focused confirmed match #${isolatedPair.template_id} ↔ #${isolatedPair.scene_id}. Press Escape or Clear selection to show all points again.`);
+    if (focusState?.kind === 'confirmed' && isolatedPair) status(`Focused confirmed match #${isolatedPair.template_id} ↔ #${isolatedPair.scene_id}. Press Escape or Clear selection to show all points again.`);
     else if (focusState?.kind === 'prediction' && isolatedPair) status(`Focused prediction #${isolatedPair.template_id} ↔ #${isolatedPair.scene_id}. Press Escape or Clear selection to show all points again.`);
     else if (selected) { const opposite=selected.side==='template'?'scene':'template'; status(`Selected “${selected.label}” on ${selected.side} · ${counts[opposite].get(canonical(selected.label))||0} candidates. Click its counterpart to confirm, or press Esc.`); }
     else status(`${pairs.length} confirmed matches. Select a character on either image to see its available counterparts.`);
   }
   function choose(side,p) {
-    if(busy) return;
+    if(busy || wordView()) return;
     focused = null;
     if(selected && selected.side!==side) {
       if(!sameLabel(selected.label,p.label)) return;
@@ -349,22 +552,22 @@
       const swatch=document.createElement('span');swatch.className='swatch';swatch.style.background=color(index);
       const label=document.createElement('strong');label.textContent=data.template.points.find(p=>p.id===pair.template_id).label;
       const ids=document.createElement('span');ids.className='ids';ids.textContent=`#${pair.template_id} ↔ #${pair.scene_id}`;
-      const remove=document.createElement('button');remove.textContent='×';remove.title='Remove match';remove.setAttribute('aria-label',`Remove match ${pair.template_id} to ${pair.scene_id}`);remove.disabled=busy;
+      const remove=document.createElement('button');remove.textContent='×';remove.title='Remove match';remove.setAttribute('aria-label',`Remove match ${pair.template_id} to ${pair.scene_id}`);remove.disabled=busy||wordView();
       row.onclick = () => setFocus('confirmed', pair, {scroll: false});
       row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setFocus('confirmed', pair, {scroll: false}); } };
-      remove.onclick=event=>{event.stopPropagation();history.push(clone(pairs));future=[];pairs.splice(index,1);selected=null;focused=null;render();};
+      remove.onclick=event=>{if(wordView())return;event.stopPropagation();history.push(clone(pairs));future=[];pairs.splice(index,1);selected=null;focused=null;render();};
       row.append(swatch,label,ids,remove);list.appendChild(row);
     });
   }
   function acceptPredictions(items) {
-    if (busy || !items.length) return;
+    if (busy || wordView() || !items.length) return;
     history.push(clone(pairs)); future = [];
     pairs.push(...items.map(p => ({template_id: p.template_id, scene_id: p.scene_id})));
     selected = null; render();
     status(`${items.length} prediction${items.length === 1 ? '' : 's'} accepted. Review and Save to keep these matches.`);
   }
   function acceptPredictionAndAdvance(pair) {
-    if (busy || !pair) return;
+    if (busy || wordView() || !pair) return;
     const previous = availablePredictions();
     const key = pairKey(pair);
     history.push(clone(pairs)); future = [];
@@ -375,7 +578,7 @@
     status(`Prediction ${key} accepted.${focused?.kind === 'prediction' ? ' Moved to next prediction.' : ''}`);
   }
   function dismissPredictionAndAdvance(pair) {
-    if (busy || !pair) return;
+    if (busy || wordView() || !pair) return;
     const previous = availablePredictions();
     const key = pairKey(pair);
     dismissed.add(key);
@@ -400,7 +603,7 @@
       const label = document.createElement('span');
       const point = data.template.points.find(p => p.id === pair.template_id);
       label.textContent = `${point.label} #${pair.template_id} ↔ #${pair.scene_id}`;
-      const accept = document.createElement('button'); accept.className = 'btn'; accept.textContent = 'Accept'; accept.disabled = busy;
+      const accept = document.createElement('button'); accept.className = 'btn'; accept.textContent = 'Accept'; accept.disabled = busy || wordView();
       row.onclick = () => setFocus('prediction', pair, {scroll: false});
       row.onkeydown = event => {
         if (event.key === 'Enter') {
@@ -419,14 +622,14 @@
         }
       };
       accept.onclick = event => { event.stopPropagation(); acceptPredictions([pair]); };
-      const reject = document.createElement('button'); reject.className = 'btn'; reject.textContent = '×'; reject.title = 'Dismiss prediction'; reject.setAttribute('aria-label', `Dismiss prediction ${pair.template_id} to ${pair.scene_id}`); reject.disabled = busy;
+      const reject = document.createElement('button'); reject.className = 'btn'; reject.textContent = '×'; reject.title = 'Dismiss prediction'; reject.setAttribute('aria-label', `Dismiss prediction ${pair.template_id} to ${pair.scene_id}`); reject.disabled = busy || wordView();
       reject.onclick = event => { event.stopPropagation(); dismissed.add(pairKey(pair)); focused = null; render(); };
       row.append(label, accept, reject); list.appendChild(row);
     }
   }
   $('accept-predictions').onclick = () => acceptPredictions(availablePredictions());
   $('predict').onclick = async () => {
-    if (!data || busy) return;
+    if (!data || busy || wordView()) return;
     busy = true; selected = null; controls(); renderList(); renderPredictions();
     $('save-state').textContent = 'Predicting…';
     status('Running object detection match predictions on the saved OCR points…');
@@ -440,7 +643,7 @@
     finally { busy = false; controls(); renderList(); renderPredictions(); }
   };
   async function save() {
-    if(!data||busy||!dirty()) return;
+    if(!data||busy||wordView()||!dirty()) return;
     busy=true;controls();renderList();$('save-state').textContent='Saving…';
     try { const saved=await api(endpoint(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pairs,hidden_scene_ids:Array.from(hiddenScenePoints).sort((a,b)=>a-b),revision:data.revision,fingerprints:data.fingerprints})}); data.revision=saved.revision;savedState=annotationState();const item=catalog.find(t=>t.name===data.template_name).samples.find(s=>s.name===data.sample_name);item.matches=pairs.length;item.reviewed=true;populateSamples();$('sample').value=data.sample_name;status('Matches saved.'); }
     catch(error){status(error.message,true);}
@@ -451,9 +654,10 @@
   $('sample').onchange=()=>{if(!acceptNavigation()){restoreSelects();return;}load();};
   function navigate(delta){const next=$('sample').selectedIndex+delta;if(next<0||next>=$('sample').options.length||!acceptNavigation())return;$('sample').selectedIndex=next;load();}
   $('previous').onclick=()=>navigate(-1);$('next').onclick=()=>navigate(1);
-  $('undo').onclick=()=>{if(busy||!history.length)return;future.push(clone(pairs));pairs=history.pop();selected=null;focused=null;render();};
-  $('redo').onclick=()=>{if(busy||!future.length)return;history.push(clone(pairs));pairs=future.pop();selected=null;focused=null;render();};
-  $('deselect').onclick=()=>{selected=null;focused=null;render();};$('labels').onchange=render;
+  $('undo').onclick=()=>{if(busy||wordView()||!history.length)return;future.push(clone(pairs));pairs=history.pop();selected=null;focused=null;render();};
+  $('redo').onclick=()=>{if(busy||wordView()||!future.length)return;history.push(clone(pairs));pairs=future.pop();selected=null;focused=null;render();};
+  $('deselect').onclick=()=>{if(wordView())return;selected=null;focused=null;render();};$('labels').onchange=render;
+  $('word-view').onchange = () => { selected = null; focused = null; render(); };
   $('hide-current-matches').onchange = () => {
     if ($('hide-current-matches').checked && focused?.kind === 'confirmed') focused = null;
     render();
@@ -464,7 +668,7 @@
   board.addEventListener('pointerdown',event=>{
     if(event.target.closest('g[data-side][data-id]')||event.button!==0||!data)return;
     const point = localPoint(event);
-    if (event.shiftKey && inScene(point)) {
+    if (!wordView() && event.shiftKey && inScene(point)) {
       hideDrag = {start: point, end: point};
       board.setPointerCapture(event.pointerId);
       render();
@@ -534,6 +738,7 @@
   $('export').onclick=()=>{const payload={schema_version:1,template_name:data.template_name,sample_name:data.sample_name,fingerprints:data.fingerprints,coordinate_spaces:{template:data.template.coordinate_space,scene:data.scene.coordinate_space},template_points:data.template.points,scene_points:data.scene.points,pairs,hidden_scene_ids:Array.from(hiddenScenePoints).sort((a,b)=>a-b)};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`${data.template_name}__${data.sample_name}__matches.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   window.addEventListener('beforeunload',event=>{if(dirty()){event.preventDefault();event.returnValue='';}});
   document.addEventListener('keydown',event=>{
+    if (wordView() && (event.key === 'Escape' || event.key === 'Delete' || event.key === 'Backspace')) return;
     if (focused?.kind === 'prediction' && !['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName)) {
       const pair = availablePredictions().find(item => pairKey(item) === focused.key);
       if (pair && event.key === 'Enter') {

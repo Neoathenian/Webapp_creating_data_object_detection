@@ -21,6 +21,11 @@ prediction. Press Backspace or Delete to dismiss it and move to the next one.
 Prediction navigation order is stabilized by a reading-order sort that groups
 nearby y-values into text lines and large x-gaps into word-like chunks, using
 both template and scene point coordinates to reduce row-to-row oscillation.
+Enable **Word to word** in the toolbar to switch to a read-only grouped view:
+confirmed character pairs are clustered into word-like groups and displayed as
+word-to-word links and bounding boxes across the two images.
+In this mode, editing actions (adding/removing matches, prediction accept/reject,
+undo/redo, and save) are disabled.
 You can also draw a selection rectangle (marquee) on the **scene** image: hold
 Shift, then click and drag over a region to toggle scene points inside it:
 visible points become hidden, and already hidden points become unhidden

@@ -82,6 +82,9 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px
 .point-hidden-preview text { fill: #b45309; }
 .point-hidden-preview path { stroke: #c2410c !important; }
 .match-line { fill: none; stroke-width: 1.8; vector-effect: non-scaling-stroke; opacity: .75; pointer-events: none; }
+.word-link { fill: none; stroke-width: 2.2; vector-effect: non-scaling-stroke; opacity: .9; pointer-events: none; }
+.word-box { fill: transparent; stroke-width: 1.6; vector-effect: non-scaling-stroke; rx: 4; ry: 4; pointer-events: none; }
+.word-label { font-family: 'Source Sans Pro', sans-serif; font-size: 9px; paint-order: stroke; stroke: #fff; stroke-width: 2px; stroke-linejoin: round; pointer-events: none; }
 .selection-rect { fill: #2563eb22; stroke: #1d4ed8; stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-dasharray: 5 3; pointer-events: none; }
 .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 8px 14px; font-size: 12px; color: #6b7280; }
 .legend span { display: flex; gap: 6px; align-items: center; }
