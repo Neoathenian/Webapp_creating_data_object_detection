@@ -32,6 +32,9 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px
 .list-heading { padding: 10px 0 6px; }
 #match-list { max-height: 200px; overflow: auto; }
 .match-row { display: flex; align-items: center; gap: 8px; padding: 7px 2px; border-top: 1px solid #f3f4f6; font-size: 13px; }
+.match-row { cursor: pointer; }
+.match-row:focus-visible, .prediction-row:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+.match-row.active, .prediction-row.active { background: #eff6ff; }
 .match-row .swatch { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .match-row strong { width: 20px; }
 .match-row .ids { color: #6b7280; flex: 1; }
@@ -102,6 +105,7 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px
 #prediction-count { color: #6b7280; margin-left: 6px; }
 #prediction-list { max-height: 180px; overflow: auto; }
 .prediction-row { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 0; border-top: 1px solid #f3f4f6; }
+.prediction-row { cursor: pointer; }
 .prediction-row span { flex: 1; }
 .prediction-row button { font-size: 12px; padding: 3px 6px; }
 .prediction-line { fill: none; stroke: #a855f7; stroke-width: 1.4; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; opacity: .7; pointer-events: none; }

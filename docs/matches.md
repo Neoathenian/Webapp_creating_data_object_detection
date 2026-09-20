@@ -11,6 +11,16 @@ with each point used at most once. There is no automatic geometric pruning.
 Points without unused counterparts, unrecognized points, and confirmed points
 show a small × and cannot be selected. Confirmed pairs have colored connecting
 lines; expand **Confirmed matches** in the sidebar and remove them there to make their points available again.
+Click a row in **Predictions** or **Confirmed matches** to focus that pair and
+inspect it individually on the board. Click the same row again, press Escape,
+or use Clear selection to restore the full view.
+Matched points (×) on the board are also clickable: selecting one jumps to and
+highlights its row in **Confirmed matches**, and the board isolates that pair.
+When a prediction row is focused, press Enter to accept it and move to the next
+prediction. Press Backspace or Delete to dismiss it and move to the next one.
+Prediction navigation order is stabilized by a reading-order sort that groups
+nearby y-values into text lines and large x-gaps into word-like chunks, using
+both template and scene point coordinates to reduce row-to-row oscillation.
 Enable **Hide current matches** in the toolbar to temporarily hide confirmed-match
 points, their labels, and their connecting lines while you inspect remaining
 unmatched characters.

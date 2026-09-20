@@ -4,6 +4,7 @@
   const board = $('board');
   let catalog = [], data = null, pairs = [], selected = null, history = [], future = [];
   let proposals = [], dismissed = new Set();
+  let focused = null;
   let savedState = '[]', busy = false, view = [0, 0, 1800, 900], layout = {}, drag = null;
   const color = i => `hsl(${(i * 137.508 + 165) % 360} 78% 42%)`;
   const dirty = () => JSON.stringify(pairs) !== savedState;
@@ -11,6 +12,7 @@
   const svg = (tag, attrs, parent = board) => { const el = document.createElementNS(ns, tag); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v); parent.appendChild(el); return el; };
   const endpoint = () => `/matches/api/pair/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`;
   const clone = value => JSON.parse(JSON.stringify(value));
+  const pairKey = pair => `${pair.template_id}:${pair.scene_id}`;
   const EQUIVALENT = { o: '0', 0: '0', i: '1', l: '1', 1: '1' };
   const canonical = label => {
     const value = String(label ?? '').trim();
@@ -80,9 +82,114 @@
     return !dirty() || window.confirm('Discard unsaved matches for this scene?');
   }
   function restoreSelects() { if (data) { $('template').value = data.template_name; populateSamples(); $('sample').value = data.sample_name; controls(); } }
+  function availablePredictions() {
+    const usedTemplate = new Set(pairs.map(p => p.template_id));
+    const usedScene = new Set(pairs.map(p => p.scene_id));
+    const filtered = proposals.filter(p => !dismissed.has(pairKey(p)) && !usedTemplate.has(p.template_id) && !usedScene.has(p.scene_id));
+    if (!data || filtered.length < 2) return filtered;
+
+    const templatePoints = new Map(data.template.points.map(point => [point.id, point]));
+    const scenePoints = new Map(data.scene.points.map(point => [point.id, point]));
+    const templateWidth = Math.max(Number(data.template.width) || 0, 1);
+    const templateHeight = Math.max(Number(data.template.height) || 0, 1);
+    const sceneWidth = Math.max(Number(data.scene.width) || 0, 1);
+    const sceneHeight = Math.max(Number(data.scene.height) || 0, 1);
+
+    const entries = filtered.map((pair, index) => {
+      const left = templatePoints.get(pair.template_id);
+      const right = scenePoints.get(pair.scene_id);
+      if (!left || !right) return {pair, index, y: 0, x: 0};
+      const y = (left.y / templateHeight + right.y / sceneHeight) / 2;
+      const x = (left.x / templateWidth + right.x / sceneWidth) / 2;
+      return {pair, index, y, x};
+    }).sort((a, b) => a.y - b.y || a.x - b.x || a.index - b.index);
+
+    const yDiffs = [];
+    for (let i = 1; i < entries.length; i += 1) {
+      const diff = entries[i].y - entries[i - 1].y;
+      if (diff > 1e-6) yDiffs.push(diff);
+    }
+    yDiffs.sort((a, b) => a - b);
+    const yMedian = yDiffs.length ? yDiffs[Math.floor(yDiffs.length / 2)] : 0.015;
+    const lineThreshold = Math.min(0.06, Math.max(0.01, yMedian * 2.2));
+
+    const lines = [];
+    for (const entry of entries) {
+      const current = lines[lines.length - 1];
+      if (!current || Math.abs(entry.y - current.centerY) > lineThreshold) {
+        lines.push({centerY: entry.y, items: [entry]});
+      } else {
+        current.items.push(entry);
+        current.centerY = (current.centerY * (current.items.length - 1) + entry.y) / current.items.length;
+      }
+    }
+
+    const ordered = [];
+    for (const line of lines) {
+      line.items.sort((a, b) => a.x - b.x || a.y - b.y || a.index - b.index);
+      const xDiffs = [];
+      for (let i = 1; i < line.items.length; i += 1) {
+        const diff = line.items[i].x - line.items[i - 1].x;
+        if (diff > 1e-6) xDiffs.push(diff);
+      }
+      xDiffs.sort((a, b) => a - b);
+      const xMedian = xDiffs.length ? xDiffs[Math.floor(xDiffs.length / 2)] : 0.03;
+      const wordGap = Math.min(0.2, Math.max(0.035, xMedian * 2.4));
+
+      let wordIndex = 0;
+      for (let i = 0; i < line.items.length; i += 1) {
+        if (i > 0 && line.items[i].x - line.items[i - 1].x > wordGap) wordIndex += 1;
+        line.items[i].wordIndex = wordIndex;
+      }
+
+      line.items.sort((a, b) => a.wordIndex - b.wordIndex || a.x - b.x || a.y - b.y || a.index - b.index);
+      ordered.push(...line.items);
+    }
+    return ordered.map(entry => entry.pair);
+  }
+  function focusedPair(available = null) {
+    if (!focused) return null;
+    if (focused.kind === 'confirmed') {
+      const pair = pairs.find(p => pairKey(p) === focused.key);
+      if (pair) return {kind: 'confirmed', pair};
+    } else if (focused.kind === 'prediction') {
+      const set = available || availablePredictions();
+      const pair = set.find(p => pairKey(p) === focused.key);
+      if (pair) return {kind: 'prediction', pair};
+    }
+    focused = null;
+    return null;
+  }
+  function setFocus(kind, pair, {scroll = false} = {}) {
+    const key = pair ? pairKey(pair) : null;
+    if (!key) {
+      focused = null;
+      render();
+      return;
+    }
+    focused = focused?.kind === kind && focused.key === key ? null : {kind, key};
+    selected = null;
+    render();
+    if (!scroll || !focused) return;
+    const selector = focused.kind === 'confirmed'
+      ? `.match-row[data-match-key="${focused.key}"]`
+      : `.prediction-row[data-prediction-key="${focused.key}"]`;
+    const row = document.querySelector(selector);
+    row?.scrollIntoView({block: 'nearest'});
+  }
+  function focusNextPrediction(previousAvailable, currentKey) {
+    const index = previousAvailable.findIndex(pair => pairKey(pair) === currentKey);
+    if (index < 0) {
+      focused = null;
+      return;
+    }
+    const updated = availablePredictions();
+    const next = updated[index] || updated[index - 1] || null;
+    focused = next ? {kind: 'prediction', key: pairKey(next)} : null;
+  }
   async function load() {
     const t = $('template').value, s = $('sample').value;
-    data = null; pairs = []; proposals = []; dismissed = new Set(); savedState = '[]'; selected = null; history = []; future = []; board.replaceChildren(); renderList(); renderPredictions();
+    data = null; pairs = []; proposals = []; dismissed = new Set(); focused = null; savedState = '[]'; selected = null; history = []; future = []; board.replaceChildren(); renderList(); renderPredictions();
     if (!t || !s) { status('No OCR scenes available.'); controls(); return; }
     busy = true; controls(); status('Loading OCR points and images…');
     try {
@@ -116,14 +223,22 @@
   function render() {
     if (!data) return;
     const hideCurrentMatches = $('hide-current-matches').checked;
+    const available = availablePredictions();
+    const focusState = focusedPair(available);
+    const isolatedPair = focusState?.pair || null;
     board.replaceChildren(); board.setAttribute('viewBox', view.join(' '));
     const base = `/matches/api/image/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`;
     for (const side of ['template','scene']) { const l = layout[side]; svg('image',{href:`${base}/${side}`,x:l.x,y:l.y,width:data[side].width*l.scale,height:data[side].height*l.scale}); }
     const pointMap = {template:new Map(data.template.points.map(p=>[p.id,p])),scene:new Map(data.scene.points.map(p=>[p.id,p]))};
-    if (!hideCurrentMatches) {
+    if (focusState?.kind === 'confirmed' && isolatedPair) {
+      const index = pairs.findIndex(pair => pairKey(pair) === pairKey(isolatedPair));
+      const a = position('template',pointMap.template.get(isolatedPair.template_id)), b = position('scene',pointMap.scene.get(isolatedPair.scene_id));
+      svg('path',{d:`M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`,stroke:color(index),class:'match-line',opacity:.9});
+    } else if (!hideCurrentMatches && !isolatedPair) {
       pairs.forEach((pair,index) => { const a = position('template',pointMap.template.get(pair.template_id)), b = position('scene',pointMap.scene.get(pair.scene_id)); svg('path',{d:`M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`,stroke:color(index),class:'match-line',opacity:selected ? .2 : .75}); });
     }
-    for (const pair of availablePredictions()) {
+    const visiblePredictions = focusState?.kind === 'prediction' && isolatedPair ? [isolatedPair] : isolatedPair ? [] : available;
+    for (const pair of visiblePredictions) {
       const a = position('template', pointMap.template.get(pair.template_id));
       const b = position('scene', pointMap.scene.get(pair.scene_id));
       svg('path', {d: `M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`, class: 'prediction-line'});
@@ -135,31 +250,51 @@
       const opposite = side === 'template' ? 'scene' : 'template';
       for (const p of data[side].points) {
         const matched = used[side].has(p.id);
+        if (isolatedPair && p.id !== isolatedPair[`${side}_id`]) continue;
         if (hideCurrentMatches && matched) continue;
         const available = !!canonical(p.label) && !matched && !!counts[opposite].get(canonical(p.label));
         if (selected && selected.side !== side && (!available || !sameLabel(selected.label, p.label))) continue;
         const xy = position(side,p), active = selected?.side === side && selected.id === p.id;
+        const focusActive = !!isolatedPair && isolatedPair[`${side}_id`] === p.id;
         const g = svg('g',{transform:`translate(${xy.x} ${xy.y})`,class:available?'ocr-point':'unavailable','data-side':side,'data-id':p.id,'aria-label':`${side} ${p.label || 'unrecognized'} point ${p.id}${available ? '' : ', no available matches'}`});
         const title = svg('title',{},g); title.textContent = `${p.label || 'Unrecognized'} · point ${p.id} · ${matched?'already matched':available?`${counts[opposite].get(canonical(p.label))} candidates`:'no available match'}`;
         if (available) {
           g.setAttribute('role','button'); g.setAttribute('tabindex','0');
           svg('circle',{r:6*unit,class:'hit'},g);
-          svg('circle',{r:(active?5:3)*unit,fill:active?'#ffb52b':'#f8fafc',stroke:active?'#9e5a00':'#193c55','stroke-width':unit,class:'marker'},g);
+          svg('circle',{r:((active||focusActive)?5:3)*unit,fill:(active||focusActive)?'#ffb52b':'#f8fafc',stroke:(active||focusActive)?'#9e5a00':'#193c55','stroke-width':unit,class:'marker'},g);
           g.addEventListener('click', event=>{event.stopPropagation(); choose(side,p);});
           g.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();choose(side,p);}});
         } else {
           const matchIndex = pairs.findIndex(pair=>pair[`${side}_id`]===p.id);
-          svg('path',{d:`M${-2.8*unit},${-2.8*unit} L${2.8*unit},${2.8*unit} M${-2.8*unit},${2.8*unit} L${2.8*unit},${-2.8*unit}`,stroke:matched?color(matchIndex):'#737c88','stroke-width':1.4*unit,'pointer-events':'none'},g);
+          if (matched) {
+            g.setAttribute('role', 'button'); g.setAttribute('tabindex', '0');
+            svg('circle', {r:6*unit, class:'hit'}, g);
+            if (focusActive) svg('circle',{r:4.8*unit,fill:'#fff7d6',stroke:color(matchIndex),'stroke-width':1.5*unit,class:'marker'},g);
+            else svg('path',{d:`M${-2.8*unit},${-2.8*unit} L${2.8*unit},${2.8*unit} M${-2.8*unit},${2.8*unit} L${2.8*unit},${-2.8*unit}`,stroke:color(matchIndex),'stroke-width':1.4*unit,'pointer-events':'none'},g);
+            const pair = pairs[matchIndex];
+            g.addEventListener('click', event => { event.stopPropagation(); setFocus('confirmed', pair, {scroll: true}); });
+            g.addEventListener('keydown', event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setFocus('confirmed', pair, {scroll: true});
+              }
+            });
+          } else {
+            svg('path',{d:`M${-2.8*unit},${-2.8*unit} L${2.8*unit},${2.8*unit} M${-2.8*unit},${2.8*unit} L${2.8*unit},${-2.8*unit}`,stroke:'#737c88','stroke-width':1.4*unit,'pointer-events':'none'},g);
+          }
         }
         if ($('labels').checked) { const text = svg('text',{x:5*unit,y:-5*unit,'font-size':10*unit,'stroke-width':2*unit},g); text.textContent=p.label || '?'; }
       }
     }
     renderList(); renderPredictions(); controls();
-    if (selected) { const opposite=selected.side==='template'?'scene':'template'; status(`Selected “${selected.label}” on ${selected.side} · ${counts[opposite].get(canonical(selected.label))||0} candidates. Click its counterpart to confirm, or press Esc.`); }
+    if (focusState?.kind === 'confirmed' && isolatedPair) status(`Focused confirmed match #${isolatedPair.template_id} ↔ #${isolatedPair.scene_id}. Press Escape or Clear selection to show all points again.`);
+    else if (focusState?.kind === 'prediction' && isolatedPair) status(`Focused prediction #${isolatedPair.template_id} ↔ #${isolatedPair.scene_id}. Press Escape or Clear selection to show all points again.`);
+    else if (selected) { const opposite=selected.side==='template'?'scene':'template'; status(`Selected “${selected.label}” on ${selected.side} · ${counts[opposite].get(canonical(selected.label))||0} candidates. Click its counterpart to confirm, or press Esc.`); }
     else status(`${pairs.length} confirmed matches. Select a character on either image to see its available counterparts.`);
   }
   function choose(side,p) {
     if(busy) return;
+    focused = null;
     if(selected && selected.side!==side) {
       if(!sameLabel(selected.label,p.label)) return;
       history.push(clone(pairs)); future=[];
@@ -172,19 +307,18 @@
     if(!pairs.length){const p=document.createElement('p');p.className='empty';p.textContent='No confirmed matches yet.';list.appendChild(p);return;}
     pairs.forEach((pair,index)=>{
       const row=document.createElement('div');row.className='match-row';
+      row.dataset.matchKey = pairKey(pair);
+      if (focused?.kind === 'confirmed' && focused.key === pairKey(pair)) row.classList.add('active');
+      row.tabIndex = 0;
       const swatch=document.createElement('span');swatch.className='swatch';swatch.style.background=color(index);
       const label=document.createElement('strong');label.textContent=data.template.points.find(p=>p.id===pair.template_id).label;
       const ids=document.createElement('span');ids.className='ids';ids.textContent=`#${pair.template_id} ↔ #${pair.scene_id}`;
       const remove=document.createElement('button');remove.textContent='×';remove.title='Remove match';remove.setAttribute('aria-label',`Remove match ${pair.template_id} to ${pair.scene_id}`);remove.disabled=busy;
-      remove.onclick=()=>{history.push(clone(pairs));future=[];pairs.splice(index,1);selected=null;render();};
+      row.onclick = () => setFocus('confirmed', pair, {scroll: false});
+      row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setFocus('confirmed', pair, {scroll: false}); } };
+      remove.onclick=event=>{event.stopPropagation();history.push(clone(pairs));future=[];pairs.splice(index,1);selected=null;focused=null;render();};
       row.append(swatch,label,ids,remove);list.appendChild(row);
     });
-  }
-  const predictionKey = pair => `${pair.template_id}:${pair.scene_id}`;
-  function availablePredictions() {
-    const usedTemplate = new Set(pairs.map(p => p.template_id));
-    const usedScene = new Set(pairs.map(p => p.scene_id));
-    return proposals.filter(p => !dismissed.has(predictionKey(p)) && !usedTemplate.has(p.template_id) && !usedScene.has(p.scene_id));
   }
   function acceptPredictions(items) {
     if (busy || !items.length) return;
@@ -192,6 +326,27 @@
     pairs.push(...items.map(p => ({template_id: p.template_id, scene_id: p.scene_id})));
     selected = null; render();
     status(`${items.length} prediction${items.length === 1 ? '' : 's'} accepted. Review and Save to keep these matches.`);
+  }
+  function acceptPredictionAndAdvance(pair) {
+    if (busy || !pair) return;
+    const previous = availablePredictions();
+    const key = pairKey(pair);
+    history.push(clone(pairs)); future = [];
+    pairs.push({template_id: pair.template_id, scene_id: pair.scene_id});
+    selected = null;
+    focusNextPrediction(previous, key);
+    render();
+    status(`Prediction ${key} accepted.${focused?.kind === 'prediction' ? ' Moved to next prediction.' : ''}`);
+  }
+  function dismissPredictionAndAdvance(pair) {
+    if (busy || !pair) return;
+    const previous = availablePredictions();
+    const key = pairKey(pair);
+    dismissed.add(key);
+    selected = null;
+    focusNextPrediction(previous, key);
+    render();
+    status(`Prediction ${key} dismissed.${focused?.kind === 'prediction' ? ' Moved to next prediction.' : ''}`);
   }
   function renderPredictions() {
     const list = $('prediction-list'), available = availablePredictions();
@@ -203,13 +358,33 @@
     }
     for (const pair of available) {
       const row = document.createElement('div'); row.className = 'prediction-row';
+      row.dataset.predictionKey = pairKey(pair);
+      if (focused?.kind === 'prediction' && focused.key === pairKey(pair)) row.classList.add('active');
+      row.tabIndex = 0;
       const label = document.createElement('span');
       const point = data.template.points.find(p => p.id === pair.template_id);
       label.textContent = `${point.label} #${pair.template_id} ↔ #${pair.scene_id}`;
       const accept = document.createElement('button'); accept.className = 'btn'; accept.textContent = 'Accept'; accept.disabled = busy;
-      accept.onclick = () => acceptPredictions([pair]);
+      row.onclick = () => setFocus('prediction', pair, {scroll: false});
+      row.onkeydown = event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          acceptPredictionAndAdvance(pair);
+          return;
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+          event.preventDefault();
+          dismissPredictionAndAdvance(pair);
+          return;
+        }
+        if (event.key === ' ') {
+          event.preventDefault();
+          setFocus('prediction', pair, {scroll: false});
+        }
+      };
+      accept.onclick = event => { event.stopPropagation(); acceptPredictions([pair]); };
       const reject = document.createElement('button'); reject.className = 'btn'; reject.textContent = '×'; reject.title = 'Dismiss prediction'; reject.setAttribute('aria-label', `Dismiss prediction ${pair.template_id} to ${pair.scene_id}`); reject.disabled = busy;
-      reject.onclick = () => { dismissed.add(predictionKey(pair)); render(); };
+      reject.onclick = event => { event.stopPropagation(); dismissed.add(pairKey(pair)); focused = null; render(); };
       row.append(label, accept, reject); list.appendChild(row);
     }
   }
@@ -240,9 +415,9 @@
   $('sample').onchange=()=>{if(!acceptNavigation()){restoreSelects();return;}load();};
   function navigate(delta){const next=$('sample').selectedIndex+delta;if(next<0||next>=$('sample').options.length||!acceptNavigation())return;$('sample').selectedIndex=next;load();}
   $('previous').onclick=()=>navigate(-1);$('next').onclick=()=>navigate(1);
-  $('undo').onclick=()=>{if(busy||!history.length)return;future.push(clone(pairs));pairs=history.pop();selected=null;render();};
-  $('redo').onclick=()=>{if(busy||!future.length)return;history.push(clone(pairs));pairs=future.pop();selected=null;render();};
-  $('deselect').onclick=()=>{selected=null;render();};$('labels').onchange=render;
+  $('undo').onclick=()=>{if(busy||!history.length)return;future.push(clone(pairs));pairs=history.pop();selected=null;focused=null;render();};
+  $('redo').onclick=()=>{if(busy||!future.length)return;history.push(clone(pairs));pairs=future.pop();selected=null;focused=null;render();};
+  $('deselect').onclick=()=>{selected=null;focused=null;render();};$('labels').onchange=render;
   $('hide-current-matches').onchange = render;
   function zoom(factor,point){if(!data)return;const width=Math.max(180,Math.min(3600,view[2]*factor));factor=width/view[2];const p=point||{x:view[0]+view[2]/2,y:view[1]+view[3]/2};view=[p.x+(view[0]-p.x)*factor,p.y+(view[1]-p.y)*factor,width,view[3]*factor];render();}
   const localPoint=event=>new DOMPoint(event.clientX,event.clientY).matrixTransform(board.getScreenCTM().inverse());
@@ -254,7 +429,24 @@
   $('zoom-range').oninput=()=>zoom((180000 / Number($('zoom-range').value)) / view[2]);$('fit').onclick=()=>{view=[0,0,1800,900];render();};
   $('export').onclick=()=>{const payload={schema_version:1,template_name:data.template_name,sample_name:data.sample_name,fingerprints:data.fingerprints,coordinate_spaces:{template:data.template.coordinate_space,scene:data.scene.coordinate_space},template_points:data.template.points,scene_points:data.scene.points,pairs};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`${data.template_name}__${data.sample_name}__matches.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   window.addEventListener('beforeunload',event=>{if(dirty()){event.preventDefault();event.returnValue='';}});
-  document.addEventListener('keydown',event=>{if(event.key==='Escape'){$('deselect').click();}if((event.ctrlKey||event.metaKey)&&event.key==='s'){event.preventDefault();save();}if((event.ctrlKey||event.metaKey)&&event.key==='z'&&!['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName)){event.preventDefault();$(event.shiftKey?'redo':'undo').click();}});
+  document.addEventListener('keydown',event=>{
+    if (focused?.kind === 'prediction' && !['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName)) {
+      const pair = availablePredictions().find(item => pairKey(item) === focused.key);
+      if (pair && event.key === 'Enter') {
+        event.preventDefault();
+        acceptPredictionAndAdvance(pair);
+        return;
+      }
+      if (pair && (event.key === 'Backspace' || event.key === 'Delete')) {
+        event.preventDefault();
+        dismissPredictionAndAdvance(pair);
+        return;
+      }
+    }
+    if(event.key==='Escape'){$('deselect').click();}
+    if((event.ctrlKey||event.metaKey)&&event.key==='s'){event.preventDefault();save();}
+    if((event.ctrlKey||event.metaKey)&&event.key==='z'&&!['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName)){event.preventDefault();$(event.shiftKey?'redo':'undo').click();}
+  });
   new ResizeObserver(()=>{if(data&&!drag)render();}).observe(board);
   const header = document.querySelector('.hdr-wrap');
   if (header) new ResizeObserver(() => {
