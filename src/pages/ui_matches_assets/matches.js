@@ -115,11 +115,14 @@
   }
   function render() {
     if (!data) return;
+    const hideCurrentMatches = $('hide-current-matches').checked;
     board.replaceChildren(); board.setAttribute('viewBox', view.join(' '));
     const base = `/matches/api/image/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`;
     for (const side of ['template','scene']) { const l = layout[side]; svg('image',{href:`${base}/${side}`,x:l.x,y:l.y,width:data[side].width*l.scale,height:data[side].height*l.scale}); }
     const pointMap = {template:new Map(data.template.points.map(p=>[p.id,p])),scene:new Map(data.scene.points.map(p=>[p.id,p]))};
-    pairs.forEach((pair,index) => { const a = position('template',pointMap.template.get(pair.template_id)), b = position('scene',pointMap.scene.get(pair.scene_id)); svg('path',{d:`M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`,stroke:color(index),class:'match-line',opacity:selected ? .2 : .75}); });
+    if (!hideCurrentMatches) {
+      pairs.forEach((pair,index) => { const a = position('template',pointMap.template.get(pair.template_id)), b = position('scene',pointMap.scene.get(pair.scene_id)); svg('path',{d:`M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`,stroke:color(index),class:'match-line',opacity:selected ? .2 : .75}); });
+    }
     for (const pair of availablePredictions()) {
       const a = position('template', pointMap.template.get(pair.template_id));
       const b = position('scene', pointMap.scene.get(pair.scene_id));
@@ -132,6 +135,7 @@
       const opposite = side === 'template' ? 'scene' : 'template';
       for (const p of data[side].points) {
         const matched = used[side].has(p.id);
+        if (hideCurrentMatches && matched) continue;
         const available = !!canonical(p.label) && !matched && !!counts[opposite].get(canonical(p.label));
         if (selected && selected.side !== side && (!available || !sameLabel(selected.label, p.label))) continue;
         const xy = position(side,p), active = selected?.side === side && selected.id === p.id;
@@ -239,6 +243,7 @@
   $('undo').onclick=()=>{if(busy||!history.length)return;future.push(clone(pairs));pairs=history.pop();selected=null;render();};
   $('redo').onclick=()=>{if(busy||!future.length)return;history.push(clone(pairs));pairs=future.pop();selected=null;render();};
   $('deselect').onclick=()=>{selected=null;render();};$('labels').onchange=render;
+  $('hide-current-matches').onchange = render;
   function zoom(factor,point){if(!data)return;const width=Math.max(180,Math.min(3600,view[2]*factor));factor=width/view[2];const p=point||{x:view[0]+view[2]/2,y:view[1]+view[3]/2};view=[p.x+(view[0]-p.x)*factor,p.y+(view[1]-p.y)*factor,width,view[3]*factor];render();}
   const localPoint=event=>new DOMPoint(event.clientX,event.clientY).matrixTransform(board.getScreenCTM().inverse());
   board.addEventListener('wheel',event=>{event.preventDefault();zoom(event.deltaY>0?1.13:1/1.13,localPoint(event));},{passive:false});

@@ -11,6 +11,9 @@ with each point used at most once. There is no automatic geometric pruning.
 Points without unused counterparts, unrecognized points, and confirmed points
 show a small × and cannot be selected. Confirmed pairs have colored connecting
 lines; expand **Confirmed matches** in the sidebar and remove them there to make their points available again.
+Enable **Hide current matches** in the toolbar to temporarily hide confirmed-match
+points, their labels, and their connecting lines while you inspect remaining
+unmatched characters.
 Scroll to zoom, drag the background to pan, and use Fit to reset the view.
 Undo/redo operates on the current sample. **Save matches** (Ctrl/Cmd+S) persists
 changes; **Export** downloads the current pairs with their OCR point coordinates,
