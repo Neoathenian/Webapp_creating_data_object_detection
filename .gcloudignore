@@ -16,3 +16,5 @@ env.dev
 Run.sh
 run.sh
 Run.ps1
+
+webapp_storage_outputs/

@@ -1,3 +1,4 @@
+"""Legacy layout migration; run before migrate_local_storage.py."""
 from __future__ import annotations
 
 import argparse

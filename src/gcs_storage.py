@@ -15,7 +15,28 @@ from datetime import timedelta
 # Defaults can be overridden via env vars without touching code
 DEFAULT_BUCKET = os.getenv("API_STORAGE_BUCKET", "api_information_storage")
 DEFAULT_KEYFILE = os.getenv("API_BUCKET_KEY_FILE", "secrets/api_bucket_db_key.json")
-LOCAL_STORAGE_DIR = Path(__file__).resolve().parents[1] / "local_storage"
+LOCAL_STORAGE_DIR = Path(__file__).resolve().parents[1] / "webapp_storage_outputs" / "local"
+
+
+def _local_path(blob_name: str) -> Path:
+    """Map legacy logical blob keys to the shared local workspace layout."""
+    parts = blob_name.strip("/").split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError("Invalid storage path")
+    # The first component is the user id, retained in logical keys for GCS.
+    if len(parts) == 1:
+        return LOCAL_STORAGE_DIR
+    folder, *rest = parts[1:]
+    if folder in ("data_collector", "1data_collector"):
+        return LOCAL_STORAGE_DIR.joinpath("bboxes", *rest)
+    return LOCAL_STORAGE_DIR.joinpath("templates", folder, *rest)
+
+
+def _local_blob_name(uid: str, path: Path) -> str:
+    category, *parts = path.relative_to(LOCAL_STORAGE_DIR).parts
+    if category == "bboxes":
+        parts.insert(0, "data_collector")
+    return "/".join([uid, *parts])
 
 
 def _credentials():
@@ -49,7 +70,7 @@ def get_bucket(name: Optional[str] = None) -> storage.Bucket:
 
 def upload_bytes(data: bytes, blob_name: str, *, content_type: Optional[str] = None, cache_seconds: int = 0) -> str:
     if os.environ["API_STORAGE_MODE"] == "local":
-        path = LOCAL_STORAGE_DIR / blob_name.lstrip("/")
+        path = _local_path(blob_name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return blob_name
@@ -73,7 +94,7 @@ def upload_fileobj(fileobj, blob_name: str, *, content_type: Optional[str] = Non
 
 def download_bytes(blob_name: str) -> bytes:
     if os.environ["API_STORAGE_MODE"] == "local":
-        path = LOCAL_STORAGE_DIR / blob_name.lstrip("/")
+        path = _local_path(blob_name)
         return path.read_bytes()
     bucket = get_bucket()
     blob = bucket.blob(blob_name)
@@ -83,7 +104,7 @@ def download_bytes(blob_name: str) -> bytes:
 def delete_prefix(prefix: str) -> int:
     """Delete all blobs under the prefix. Returns count deleted."""
     if os.environ["API_STORAGE_MODE"] == "local":
-        target = LOCAL_STORAGE_DIR / prefix.lstrip("/")
+        target = _local_path(prefix)
         if target.is_file():
             target.unlink()
             return 1
@@ -108,7 +129,7 @@ def delete_prefix(prefix: str) -> int:
 
 def blob_exists(blob_name: str) -> bool:
     if os.environ["API_STORAGE_MODE"] == "local":
-        return (LOCAL_STORAGE_DIR / blob_name.lstrip("/")).is_file()
+        return _local_path(blob_name).is_file()
     bucket = get_bucket()
     return bucket.blob(blob_name).exists(storage_client())
 
@@ -116,7 +137,7 @@ def blob_exists(blob_name: str) -> bool:
 def is_name_taken(uid: str, name: str) -> bool:
     """Return True if any object exists under `<uid>/<name>/` prefix."""
     if os.environ["API_STORAGE_MODE"] == "local":
-        prefix_path = LOCAL_STORAGE_DIR / uid / name
+        prefix_path = _local_path(f"{uid}/{name}")
         if prefix_path.is_file():
             return True
         if prefix_path.is_dir():
@@ -133,8 +154,8 @@ def is_name_taken(uid: str, name: str) -> bool:
 
 def copy_blob(src_blob: str, dst_blob: str, *, delete_src: bool = False) -> None:
     if os.environ["API_STORAGE_MODE"] == "local":
-        src = LOCAL_STORAGE_DIR / src_blob.lstrip("/")
-        dst = LOCAL_STORAGE_DIR / dst_blob.lstrip("/")
+        src = _local_path(src_blob)
+        dst = _local_path(dst_blob)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         if delete_src:
@@ -158,7 +179,7 @@ def iter_user_docs(uid: str) -> Iterable[Dict[str, Any]]:
     Yield parsed JSON docs for a user by scanning `<uid>/*/bboxes.json`.
     """
     if os.environ["API_STORAGE_MODE"] == "local":
-        user_root = LOCAL_STORAGE_DIR / uid
+        user_root = LOCAL_STORAGE_DIR
         if not user_root.exists():
             return
         for path in user_root.rglob("bboxes.json"):
@@ -190,7 +211,7 @@ def iter_user_docs(uid: str) -> Iterable[Dict[str, Any]]:
 def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]]:
     """Return (doc, blob_name) for the given id within user's folder."""
     if os.environ["API_STORAGE_MODE"] == "local":
-        user_root = LOCAL_STORAGE_DIR / uid
+        user_root = LOCAL_STORAGE_DIR
         if not user_root.exists():
             return None
         for path in user_root.rglob("bboxes.json"):
@@ -200,7 +221,7 @@ def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]
                 raw = path.read_bytes()
                 doc = json.loads(raw.decode("utf-8"))
                 if str(doc.get("id")) == str(api_id):
-                    return doc, path.relative_to(LOCAL_STORAGE_DIR).as_posix()
+                    return doc, _local_blob_name(uid, path)
             except Exception:
                 continue
         return None
@@ -224,13 +245,13 @@ def find_doc_by_id(uid: str, api_id: str) -> Optional[Tuple[Dict[str, Any], str]
 def find_doc_by_name(uid: str, api_name: str) -> Optional[Tuple[Dict[str, Any], str]]:
     """Return (doc, blob_name) for the given API folder name."""
     if os.environ["API_STORAGE_MODE"] == "local":
-        path = LOCAL_STORAGE_DIR / uid / api_name / "bboxes.json"
+        path = _local_path(f"{uid}/{api_name}/bboxes.json")
         if not path.is_file():
             return None
         try:
             raw = path.read_bytes()
             doc = json.loads(raw.decode("utf-8"))
-            return doc, path.relative_to(LOCAL_STORAGE_DIR).as_posix()
+            return doc, _local_blob_name(uid, path)
         except Exception:
             return None
     client = storage_client()
