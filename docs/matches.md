@@ -21,6 +21,14 @@ prediction. Press Backspace or Delete to dismiss it and move to the next one.
 Prediction navigation order is stabilized by a reading-order sort that groups
 nearby y-values into text lines and large x-gaps into word-like chunks, using
 both template and scene point coordinates to reduce row-to-row oscillation.
+You can also draw a selection rectangle (marquee) on the **scene** image: hold
+Shift, then click and drag over a region to toggle scene points inside it:
+visible points become hidden, and already hidden points become unhidden
+permanently.
+Use the **Show hidden points** checkbox in the toolbar to preview hidden points.
+When shown, hidden points are highlighted so they remain easy to identify.
+Hidden scene-point selections are saved with the scene when you click **Save**,
+and restored automatically on reload.
 Enable **Hide current matches** in the toolbar to temporarily hide confirmed-match
 points, their labels, and their connecting lines while you inspect remaining
 unmatched characters.
@@ -51,7 +59,7 @@ local/
 
 `manual_matches.json` is created on save. It contains a versioned list of
 `{template_id, scene_id}` pairs, coordinate spaces, source fingerprints, a revision,
-and an update timestamp. IDs are zero-based positions in the original OCR
+any saved hidden scene point IDs, and an update timestamp. IDs are zero-based positions in the original OCR
 `detections` array. The API response and exported JSON also supply `cluster_index`
 for the API algorithm's list, which excludes detections without labels.
 Original OCR files and images are never rewritten by annotation saves.

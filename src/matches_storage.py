@@ -22,11 +22,17 @@ TEMPLATES_ROOT = LOCAL_STORAGE_DIR / "templates"
 _SAVE_LOCK = threading.Lock()
 
 _OCR_EQUIVALENCE_CANONICAL = {
+    'e': '0',
     'o': '0',
     '0': '0',
+    'f': '1',
+    '/': '1',
     'i': '1',
     'l': '1',
+    't': '1',
     '1': '1',
+    's': '5',
+    '5': '5',
 }
 
 
@@ -36,9 +42,12 @@ class ConflictError(ValueError):
 
 def canonical_label(label: str) -> str:
     value = str(label or '').strip()
-    if len(value) != 1:
-        return value
-    return _OCR_EQUIVALENCE_CANONICAL.get(value.lower(), value)
+    if not value:
+        return ''
+    folded = value.casefold()
+    if len(folded) != 1:
+        return folded
+    return _OCR_EQUIVALENCE_CANONICAL.get(folded, folded)
 
 
 def labels_match(left: str, right: str) -> bool:
@@ -180,7 +189,7 @@ def template_folder(template: str) -> Path:
 
 def read_annotations(path: Path) -> dict:
     file = path / 'manual_matches.json'
-    return json.loads(file.read_text()) if file.exists() else {'revision': 0, 'pairs': []}
+    return json.loads(file.read_text()) if file.exists() else {'revision': 0, 'pairs': [], 'hidden_scene_ids': []}
 
 
 def load_pair(template: str, sample: str) -> dict:
@@ -192,10 +201,12 @@ def load_pair(template: str, sample: str) -> dict:
     if saved.get('fingerprints', fingerprints) != fingerprints:
         raise ConflictError('Template OCR, image, or bounding-box mask changed since annotation, or scene OCR changed. Saved matches must be reviewed against their original inputs before editing.')
     return {'template_name': template, 'sample_name': sample, 'template': left, 'scene': right,
-            'pairs': saved['pairs'], 'revision': saved['revision'], 'fingerprints': fingerprints}
+            'pairs': saved['pairs'], 'hidden_scene_ids': saved.get('hidden_scene_ids', []),
+            'revision': saved['revision'], 'fingerprints': fingerprints}
 
 
-def save_pair(template: str, sample: str, pairs: list[dict], revision: int, fingerprints: dict) -> dict:
+def save_pair(template: str, sample: str, pairs: list[dict], revision: int, fingerprints: dict,
+              hidden_scene_ids: list[int] | None = None) -> dict:
     with _SAVE_LOCK:
         data = load_pair(template, sample)
         if revision != data['revision'] or fingerprints != data['fingerprints']:
@@ -213,11 +224,21 @@ def save_pair(template: str, sample: str, pairs: list[dict], revision: int, fing
                 raise ValueError('Each point can only belong to one match')
             used_left.add(t)
             used_right.add(s)
+
+        hidden = [] if hidden_scene_ids is None else list(hidden_scene_ids)
+        seen_hidden = set()
+        for point_id in hidden:
+            if point_id not in right:
+                raise ValueError('Unknown hidden scene OCR point')
+            if point_id in seen_hidden:
+                raise ValueError('Duplicate hidden scene OCR point')
+            seen_hidden.add(point_id)
+
         doc = {'schema_version': 1, 'template_name': template, 'sample_name': sample,
                'matching_rule': 'exact_character_one_to_one', 'fingerprints': fingerprints,
                'revision': revision + 1, 'updated_at': datetime.now(timezone.utc).isoformat(),
                'coordinate_spaces': {side: data[side]['coordinate_space'] for side in ('template', 'scene')},
-               'pairs': pairs}
+               'pairs': pairs, 'hidden_scene_ids': hidden}
         path = folder(template, sample) / 'manual_matches.json'
         fd, temporary = tempfile.mkstemp(prefix='.matches-', suffix='.tmp', dir=path.parent)
         try:

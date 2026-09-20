@@ -42,9 +42,14 @@ class MatchesTests(unittest.TestCase):
         app.include_router(router)
         self.client = TestClient(app)
 
-    def payload(self, pairs=None):
+    def payload(self, pairs=None, hidden_scene_ids=None):
         data = store.load_pair('CI', 'sample')
-        return {'pairs': pairs or [{'template_id': 0, 'scene_id': 1}], 'revision': data['revision'], 'fingerprints': data['fingerprints']}
+        return {
+            'pairs': pairs or [{'template_id': 0, 'scene_id': 1}],
+            'hidden_scene_ids': hidden_scene_ids or [],
+            'revision': data['revision'],
+            'fingerprints': data['fingerprints'],
+        }
 
     def test_uses_api_polygon_centroids_and_rotated_image(self):
         data = store.load_pair('CI', 'sample')
@@ -63,9 +68,21 @@ class MatchesTests(unittest.TestCase):
         self.assertEqual(store.catalog()[0]['samples'][0]['matches'], 1)
         self.assertEqual(len(list(self.scene.glob('*.tmp'))), 0)
 
+    def test_persists_hidden_scene_points(self):
+        payload = self.payload(hidden_scene_ids=[0, 2])
+        response = self.client.put('/matches/api/pair/CI/sample', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        data = store.load_pair('CI', 'sample')
+        self.assertEqual(data['hidden_scene_ids'], [0, 2])
+        doc = json.loads((self.scene / 'manual_matches.json').read_text())
+        self.assertEqual(doc['hidden_scene_ids'], [0, 2])
+
     def test_rejects_invalid_pairs(self):
         for pairs in ([{'template_id':0,'scene_id':2}], [{'template_id':3,'scene_id':3}], [{'template_id':100,'scene_id':0}], [{'template_id':0,'scene_id':0},{'template_id':0,'scene_id':1}], [{'template_id':0,'scene_id':0},{'template_id':1,'scene_id':0}], [{'template_id':True,'scene_id':0}]):
             response = self.client.put('/matches/api/pair/CI/sample', json=self.payload(pairs))
+            self.assertEqual(response.status_code, 422, response.text)
+        for hidden_scene_ids in ([100], [0, 0], [True]):
+            response = self.client.put('/matches/api/pair/CI/sample', json=self.payload(hidden_scene_ids=hidden_scene_ids))
             self.assertEqual(response.status_code, 422, response.text)
         self.assertFalse((self.scene / 'manual_matches.json').exists())
 
@@ -168,16 +185,50 @@ class MatchesTests(unittest.TestCase):
 
         template_doc = json.loads((self.template / 'ocr_character_overlay.json').read_text())
         scene_doc = json.loads((self.scene / 'ocr_character_overlay.json').read_text())
-        template_doc['detections'][0]['text'] = 'o'
+        template_doc['detections'][0]['text'] = 'e'
         scene_doc['detections'][0]['text'] = '0'
-        template_doc['detections'][1]['text'] = 'i'
-        scene_doc['detections'][1]['text'] = 'l'
+        template_doc['detections'][1]['text'] = 'f'
+        scene_doc['detections'][1]['text'] = '/'
+        template_doc['detections'][2]['text'] = 's'
+        scene_doc['detections'][2]['text'] = '5'
         (self.template / 'ocr_character_overlay.json').write_text(json.dumps(template_doc))
         (self.scene / 'ocr_character_overlay.json').write_text(json.dumps(scene_doc))
 
         payload = self.payload([
             {'template_id': 0, 'scene_id': 0},
             {'template_id': 1, 'scene_id': 1},
+            {'template_id': 2, 'scene_id': 2},
+        ])
+        response = self.client.put('/matches/api/pair/CI/sample', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_allows_case_insensitive_ocr_characters(self):
+        template_doc = json.loads((self.template / 'ocr_character_overlay.json').read_text())
+        scene_doc = json.loads((self.scene / 'ocr_character_overlay.json').read_text())
+        template_doc['detections'][0]['text'] = 'A'
+        scene_doc['detections'][0]['text'] = 'a'
+        template_doc['detections'][1]['text'] = 'b'
+        scene_doc['detections'][1]['text'] = 'B'
+        (self.template / 'ocr_character_overlay.json').write_text(json.dumps(template_doc))
+        (self.scene / 'ocr_character_overlay.json').write_text(json.dumps(scene_doc))
+
+        payload = self.payload([
+            {'template_id': 0, 'scene_id': 0},
+            {'template_id': 1, 'scene_id': 1},
+        ])
+        response = self.client.put('/matches/api/pair/CI/sample', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_allows_l_and_t_equivalence(self):
+        template_doc = json.loads((self.template / 'ocr_character_overlay.json').read_text())
+        scene_doc = json.loads((self.scene / 'ocr_character_overlay.json').read_text())
+        template_doc['detections'][0]['text'] = 'l'
+        scene_doc['detections'][0]['text'] = 't'
+        (self.template / 'ocr_character_overlay.json').write_text(json.dumps(template_doc))
+        (self.scene / 'ocr_character_overlay.json').write_text(json.dumps(scene_doc))
+
+        payload = self.payload([
+            {'template_id': 0, 'scene_id': 0},
         ])
         response = self.client.put('/matches/api/pair/CI/sample', json=payload)
         self.assertEqual(response.status_code, 200, response.text)

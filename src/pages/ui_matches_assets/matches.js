@@ -5,20 +5,26 @@
   let catalog = [], data = null, pairs = [], selected = null, history = [], future = [];
   let proposals = [], dismissed = new Set();
   let focused = null;
-  let savedState = '[]', busy = false, view = [0, 0, 1800, 900], layout = {}, drag = null;
+  let hiddenScenePoints = new Set(), revealHiddenPoints = false;
+  let savedState = '{"pairs":[],"hidden_scene_ids":[]}', busy = false, view = [0, 0, 1800, 900], layout = {}, drag = null, hideDrag = null;
   const color = i => `hsl(${(i * 137.508 + 165) % 360} 78% 42%)`;
-  const dirty = () => JSON.stringify(pairs) !== savedState;
+  const annotationState = () => JSON.stringify({
+    pairs,
+    hidden_scene_ids: Array.from(hiddenScenePoints).sort((a, b) => a - b),
+  });
+  const dirty = () => annotationState() !== savedState;
   const status = (message, error = false) => { $('status').textContent = message; $('status').classList.toggle('error', error); };
   const svg = (tag, attrs, parent = board) => { const el = document.createElementNS(ns, tag); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v); parent.appendChild(el); return el; };
   const endpoint = () => `/matches/api/pair/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`;
   const clone = value => JSON.parse(JSON.stringify(value));
   const pairKey = pair => `${pair.template_id}:${pair.scene_id}`;
-  const EQUIVALENT = { o: '0', 0: '0', i: '1', l: '1', 1: '1' };
+  const EQUIVALENT = { e: '0', o: '0', 0: '0', f: '1', '/': '1', i: '1', l: '1', t: '1', 1: '1', s: '5', 5: '5' };
   const canonical = label => {
     const value = String(label ?? '').trim();
-    if (value.length !== 1) return value;
-    const lower = value.toLowerCase();
-    return EQUIVALENT[lower] ?? value;
+    if (!value) return '';
+    const folded = value.toLowerCase();
+    if (folded.length !== 1) return folded;
+    return EQUIVALENT[folded] ?? folded;
   };
   const sameLabel = (left, right) => {
     const a = canonical(left), b = canonical(right);
@@ -36,6 +42,8 @@
     $('undo').disabled = busy || !history.length;
     $('redo').disabled = busy || !future.length;
     $('export').disabled = !data || busy;
+    $('show-hidden-points').disabled = busy || !hiddenScenePoints.size;
+    if (!hiddenScenePoints.size) $('show-hidden-points').checked = false;
     for (const id of ['template','sample','previous','next']) $(id).disabled = busy;
     $('save-state').textContent = busy ? 'Loading…' : !data ? 'No sample loaded' : dirty() ? 'Unsaved changes' : `Saved · revision ${data.revision}`;
     $('count').textContent = pairs.length;
@@ -189,14 +197,16 @@
   }
   async function load() {
     const t = $('template').value, s = $('sample').value;
-    data = null; pairs = []; proposals = []; dismissed = new Set(); focused = null; savedState = '[]'; selected = null; history = []; future = []; board.replaceChildren(); renderList(); renderPredictions();
+    data = null; pairs = []; proposals = []; dismissed = new Set(); focused = null; hiddenScenePoints = new Set(); revealHiddenPoints = false; savedState = '{"pairs":[],"hidden_scene_ids":[]}'; selected = null; history = []; future = []; board.replaceChildren(); renderList(); renderPredictions();
     if (!t || !s) { status('No OCR scenes available.'); controls(); return; }
     busy = true; controls(); status('Loading OCR points and images…');
     try {
       const result = await api(`/matches/api/pair/${encodeURIComponent(t)}/${encodeURIComponent(s)}`);
       const base = `/matches/api/image/${encodeURIComponent(t)}/${encodeURIComponent(s)}`;
       await Promise.all(['template','scene'].map(side => new Promise((resolve,reject) => { const image = new Image(); image.onload = resolve; image.onerror = () => reject(new Error(`Could not load ${side} image.`)); image.src = `${base}/${side}`; })));
-      data = result; pairs = clone(result.pairs); savedState = JSON.stringify(pairs);
+      data = result; pairs = clone(result.pairs);
+      hiddenScenePoints = new Set(result.hidden_scene_ids || []);
+      savedState = annotationState();
       proposals = result.predictions?.pairs || [];
       $('predictions-panel').open = proposals.length > 0;
       $('template-name').textContent = t; $('scene-name').textContent = s;
@@ -209,6 +219,20 @@
     finally { busy = false; controls(); renderList(); renderPredictions(); }
   }
   const position = (side,p) => ({x: layout[side].x + p.x*layout[side].scale, y:layout[side].y + p.y*layout[side].scale});
+  const sceneBounds = () => {
+    if (!data || !layout.scene) return null;
+    const box = layout.scene;
+    return {
+      x0: box.x,
+      y0: box.y,
+      x1: box.x + data.scene.width * box.scale,
+      y1: box.y + data.scene.height * box.scale,
+    };
+  };
+  const inScene = point => {
+    const bounds = sceneBounds();
+    return !!bounds && point.x >= bounds.x0 && point.x <= bounds.x1 && point.y >= bounds.y0 && point.y <= bounds.y1;
+  };
   function availability() {
     const used = {template:new Set(pairs.map(p=>p.template_id)), scene:new Set(pairs.map(p=>p.scene_id))};
     const counts = {template:new Map(),scene:new Map()};
@@ -222,7 +246,9 @@
   }
   function render() {
     if (!data) return;
+    revealHiddenPoints = $('show-hidden-points').checked;
     const hideCurrentMatches = $('hide-current-matches').checked;
+    if (hideCurrentMatches && focused?.kind === 'confirmed') focused = null;
     const available = availablePredictions();
     const focusState = focusedPair(available);
     const isolatedPair = focusState?.pair || null;
@@ -230,7 +256,7 @@
     const base = `/matches/api/image/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`;
     for (const side of ['template','scene']) { const l = layout[side]; svg('image',{href:`${base}/${side}`,x:l.x,y:l.y,width:data[side].width*l.scale,height:data[side].height*l.scale}); }
     const pointMap = {template:new Map(data.template.points.map(p=>[p.id,p])),scene:new Map(data.scene.points.map(p=>[p.id,p]))};
-    if (focusState?.kind === 'confirmed' && isolatedPair) {
+    if (!hideCurrentMatches && focusState?.kind === 'confirmed' && isolatedPair) {
       const index = pairs.findIndex(pair => pairKey(pair) === pairKey(isolatedPair));
       const a = position('template',pointMap.template.get(isolatedPair.template_id)), b = position('scene',pointMap.scene.get(isolatedPair.scene_id));
       svg('path',{d:`M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`,stroke:color(index),class:'match-line',opacity:.9});
@@ -251,12 +277,15 @@
       for (const p of data[side].points) {
         const matched = used[side].has(p.id);
         if (isolatedPair && p.id !== isolatedPair[`${side}_id`]) continue;
-        if (hideCurrentMatches && matched) continue;
+        const isFocusedPairPoint = !hideCurrentMatches && !!isolatedPair && p.id === isolatedPair[`${side}_id`];
+        if (side === 'scene' && hiddenScenePoints.has(p.id) && !revealHiddenPoints && !isFocusedPairPoint) continue;
+        if (hideCurrentMatches && matched && !isFocusedPairPoint) continue;
         const available = !!canonical(p.label) && !matched && !!counts[opposite].get(canonical(p.label));
         if (selected && selected.side !== side && (!available || !sameLabel(selected.label, p.label))) continue;
         const xy = position(side,p), active = selected?.side === side && selected.id === p.id;
         const focusActive = !!isolatedPair && isolatedPair[`${side}_id`] === p.id;
         const g = svg('g',{transform:`translate(${xy.x} ${xy.y})`,class:available?'ocr-point':'unavailable','data-side':side,'data-id':p.id,'aria-label':`${side} ${p.label || 'unrecognized'} point ${p.id}${available ? '' : ', no available matches'}`});
+        if (side === 'scene' && hiddenScenePoints.has(p.id) && revealHiddenPoints) g.classList.add('point-hidden-preview');
         const title = svg('title',{},g); title.textContent = `${p.label || 'Unrecognized'} · point ${p.id} · ${matched?'already matched':available?`${counts[opposite].get(canonical(p.label))} candidates`:'no available match'}`;
         if (available) {
           g.setAttribute('role','button'); g.setAttribute('tabindex','0');
@@ -286,8 +315,15 @@
         if ($('labels').checked) { const text = svg('text',{x:5*unit,y:-5*unit,'font-size':10*unit,'stroke-width':2*unit},g); text.textContent=p.label || '?'; }
       }
     }
+    if (hideDrag) {
+      const x = Math.min(hideDrag.start.x, hideDrag.end.x);
+      const y = Math.min(hideDrag.start.y, hideDrag.end.y);
+      const width = Math.abs(hideDrag.end.x - hideDrag.start.x);
+      const height = Math.abs(hideDrag.end.y - hideDrag.start.y);
+      svg('rect', {x, y, width, height, class: 'selection-rect'});
+    }
     renderList(); renderPredictions(); controls();
-    if (focusState?.kind === 'confirmed' && isolatedPair) status(`Focused confirmed match #${isolatedPair.template_id} ↔ #${isolatedPair.scene_id}. Press Escape or Clear selection to show all points again.`);
+    if (!hideCurrentMatches && focusState?.kind === 'confirmed' && isolatedPair) status(`Focused confirmed match #${isolatedPair.template_id} ↔ #${isolatedPair.scene_id}. Press Escape or Clear selection to show all points again.`);
     else if (focusState?.kind === 'prediction' && isolatedPair) status(`Focused prediction #${isolatedPair.template_id} ↔ #${isolatedPair.scene_id}. Press Escape or Clear selection to show all points again.`);
     else if (selected) { const opposite=selected.side==='template'?'scene':'template'; status(`Selected “${selected.label}” on ${selected.side} · ${counts[opposite].get(canonical(selected.label))||0} candidates. Click its counterpart to confirm, or press Esc.`); }
     else status(`${pairs.length} confirmed matches. Select a character on either image to see its available counterparts.`);
@@ -406,7 +442,7 @@
   async function save() {
     if(!data||busy||!dirty()) return;
     busy=true;controls();renderList();$('save-state').textContent='Saving…';
-    try { const saved=await api(endpoint(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pairs,revision:data.revision,fingerprints:data.fingerprints})}); data.revision=saved.revision;savedState=JSON.stringify(pairs);const item=catalog.find(t=>t.name===data.template_name).samples.find(s=>s.name===data.sample_name);item.matches=pairs.length;item.reviewed=true;populateSamples();$('sample').value=data.sample_name;status('Matches saved.'); }
+    try { const saved=await api(endpoint(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pairs,hidden_scene_ids:Array.from(hiddenScenePoints).sort((a,b)=>a-b),revision:data.revision,fingerprints:data.fingerprints})}); data.revision=saved.revision;savedState=annotationState();const item=catalog.find(t=>t.name===data.template_name).samples.find(s=>s.name===data.sample_name);item.matches=pairs.length;item.reviewed=true;populateSamples();$('sample').value=data.sample_name;status('Matches saved.'); }
     catch(error){status(error.message,true);}
     finally{busy=false;controls();renderList();renderPredictions();}
   }
@@ -418,16 +454,84 @@
   $('undo').onclick=()=>{if(busy||!history.length)return;future.push(clone(pairs));pairs=history.pop();selected=null;focused=null;render();};
   $('redo').onclick=()=>{if(busy||!future.length)return;history.push(clone(pairs));pairs=future.pop();selected=null;focused=null;render();};
   $('deselect').onclick=()=>{selected=null;focused=null;render();};$('labels').onchange=render;
-  $('hide-current-matches').onchange = render;
+  $('hide-current-matches').onchange = () => {
+    if ($('hide-current-matches').checked && focused?.kind === 'confirmed') focused = null;
+    render();
+  };
   function zoom(factor,point){if(!data)return;const width=Math.max(180,Math.min(3600,view[2]*factor));factor=width/view[2];const p=point||{x:view[0]+view[2]/2,y:view[1]+view[3]/2};view=[p.x+(view[0]-p.x)*factor,p.y+(view[1]-p.y)*factor,width,view[3]*factor];render();}
   const localPoint=event=>new DOMPoint(event.clientX,event.clientY).matrixTransform(board.getScreenCTM().inverse());
   board.addEventListener('wheel',event=>{event.preventDefault();zoom(event.deltaY>0?1.13:1/1.13,localPoint(event));},{passive:false});
-  board.addEventListener('pointerdown',event=>{if(event.target.closest('.ocr-point')||event.button!==0)return;drag={start:localPoint(event),view:[...view]};board.setPointerCapture(event.pointerId);board.classList.add('panning');});
-  board.addEventListener('pointermove',event=>{if(!drag)return;const point=localPoint(event);view[0]+=drag.start.x-point.x;view[1]+=drag.start.y-point.y;board.setAttribute('viewBox',view.join(' '));});
-  const stopDrag=()=>{if(!drag)return;drag=null;board.classList.remove('panning');render();};
+  board.addEventListener('pointerdown',event=>{
+    if(event.target.closest('g[data-side][data-id]')||event.button!==0||!data)return;
+    const point = localPoint(event);
+    if (event.shiftKey && inScene(point)) {
+      hideDrag = {start: point, end: point};
+      board.setPointerCapture(event.pointerId);
+      render();
+      return;
+    }
+    drag={start:point,view:[...view]};
+    board.setPointerCapture(event.pointerId);
+    board.classList.add('panning');
+  });
+  board.addEventListener('pointermove',event=>{
+    const point=localPoint(event);
+    if (hideDrag) {
+      hideDrag.end = point;
+      render();
+      return;
+    }
+    if(!drag)return;
+    view[0]+=drag.start.x-point.x;
+    view[1]+=drag.start.y-point.y;
+    board.setAttribute('viewBox',view.join(' '));
+  });
+  const stopDrag=()=>{
+    if (hideDrag) {
+      const x0 = Math.min(hideDrag.start.x, hideDrag.end.x);
+      const y0 = Math.min(hideDrag.start.y, hideDrag.end.y);
+      const x1 = Math.max(hideDrag.start.x, hideDrag.end.x);
+      const y1 = Math.max(hideDrag.start.y, hideDrag.end.y);
+      const minimum = 3 * Math.max(view[2] / Math.max(board.clientWidth, 1), view[3] / Math.max(board.clientHeight, 1));
+      let added = 0, removed = 0;
+      if ((x1 - x0) >= minimum && (y1 - y0) >= minimum) {
+        for (const point of data.scene.points) {
+          const xy = position('scene', point);
+          if (xy.x >= x0 && xy.x <= x1 && xy.y >= y0 && xy.y <= y1) {
+            if (hiddenScenePoints.has(point.id)) {
+              hiddenScenePoints.delete(point.id);
+              removed += 1;
+            } else {
+              hiddenScenePoints.add(point.id);
+              added += 1;
+            }
+          }
+        }
+      }
+      hideDrag = null;
+      if (!hiddenScenePoints.size) $('show-hidden-points').checked = false;
+      render();
+      if (added && removed) status(`Hidden ${added} and unhid ${removed} scene point${added + removed === 1 ? '' : 's'} using the selection rectangle.`);
+      else if (added) status(`Hidden ${added} scene point${added === 1 ? '' : 's'} from the selection rectangle. Enable “Show hidden points” to preview them.`);
+      else if (removed) status(`Unhid ${removed} scene point${removed === 1 ? '' : 's'} from the selection rectangle.`);
+      return;
+    }
+    if(!drag)return;
+    drag=null;
+    board.classList.remove('panning');
+    render();
+  };
   board.addEventListener('pointerup',stopDrag);board.addEventListener('pointercancel',stopDrag);
   $('zoom-range').oninput=()=>zoom((180000 / Number($('zoom-range').value)) / view[2]);$('fit').onclick=()=>{view=[0,0,1800,900];render();};
-  $('export').onclick=()=>{const payload={schema_version:1,template_name:data.template_name,sample_name:data.sample_name,fingerprints:data.fingerprints,coordinate_spaces:{template:data.template.coordinate_space,scene:data.scene.coordinate_space},template_points:data.template.points,scene_points:data.scene.points,pairs};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`${data.template_name}__${data.sample_name}__matches.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+  $('show-hidden-points').onchange = () => {
+    if (busy || !hiddenScenePoints.size) {
+      $('show-hidden-points').checked = false;
+      return;
+    }
+    revealHiddenPoints = $('show-hidden-points').checked;
+    render();
+  };
+  $('export').onclick=()=>{const payload={schema_version:1,template_name:data.template_name,sample_name:data.sample_name,fingerprints:data.fingerprints,coordinate_spaces:{template:data.template.coordinate_space,scene:data.scene.coordinate_space},template_points:data.template.points,scene_points:data.scene.points,pairs,hidden_scene_ids:Array.from(hiddenScenePoints).sort((a,b)=>a-b)};const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`${data.template_name}__${data.sample_name}__matches.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   window.addEventListener('beforeunload',event=>{if(dirty()){event.preventDefault();event.returnValue='';}});
   document.addEventListener('keydown',event=>{
     if (focused?.kind === 'prediction' && !['INPUT','SELECT','TEXTAREA'].includes(event.target.tagName)) {

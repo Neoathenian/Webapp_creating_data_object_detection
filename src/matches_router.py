@@ -33,6 +33,7 @@ class SaveMatches(BaseModel):
     revision: int = Field(ge=0)
     fingerprints: dict[str, str]
     pairs: list[Pair] = Field(max_length=10000)
+    hidden_scene_ids: list[StrictInt] = Field(default_factory=list, max_length=10000)
 
 
 def checked(fn, *args, **kwargs):
@@ -81,7 +82,7 @@ def pair(template: str, sample: str):
 @router.put('/api/pair/{template}/{sample}')
 def save(template: str, sample: str, payload: SaveMatches):
     return checked(store.save_pair, template, sample, [p.model_dump() for p in payload.pairs],
-                   payload.revision, payload.fingerprints)
+                   payload.revision, payload.fingerprints, payload.hidden_scene_ids)
 
 
 @router.get('/api/image/{template}/{sample}/{side}')

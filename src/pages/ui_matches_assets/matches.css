@@ -77,7 +77,12 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px
 .ocr-point:focus .marker { stroke: #ef8f00; stroke-width: 3px; }
 .ocr-point text, .unavailable text { font-family: 'Source Sans Pro', sans-serif; paint-order: stroke; stroke: #fff; stroke-width: 2.5px; stroke-linejoin: round; fill: #122238; pointer-events: none; }
 .ocr-point .hit { fill: transparent; }
+.point-hidden-preview { opacity: .88; }
+.point-hidden-preview .marker { fill: #fff7d6 !important; stroke: #c2410c !important; }
+.point-hidden-preview text { fill: #b45309; }
+.point-hidden-preview path { stroke: #c2410c !important; }
 .match-line { fill: none; stroke-width: 1.8; vector-effect: non-scaling-stroke; opacity: .75; pointer-events: none; }
+.selection-rect { fill: #2563eb22; stroke: #1d4ed8; stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-dasharray: 5 3; pointer-events: none; }
 .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 8px 14px; font-size: 12px; color: #6b7280; }
 .legend span { display: flex; gap: 6px; align-items: center; }
 .dot { width: 8px; height: 8px; border: 1px solid #193c55; border-radius: 50%; background: #fff; }
