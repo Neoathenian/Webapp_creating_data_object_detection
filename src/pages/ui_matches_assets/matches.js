@@ -3,6 +3,7 @@
   const $ = id => document.getElementById(id), ns = 'http://www.w3.org/2000/svg';
   const board = $('board');
   let catalog = [], data = null, pairs = [], selected = null, history = [], future = [];
+  let proposals = [], dismissed = new Set();
   let savedState = '[]', busy = false, view = [0, 0, 1800, 900], layout = {}, drag = null;
   const color = i => `hsl(${(i * 137.508 + 165) % 360} 78% 42%)`;
   const dirty = () => JSON.stringify(pairs) !== savedState;
@@ -17,6 +18,8 @@
   }
   function controls() {
     $('save').disabled = !data || busy || !dirty();
+    $('predict').disabled = !data || busy;
+    $('accept-predictions').disabled = !data || busy || !availablePredictions().length;
     $('undo').disabled = busy || !history.length;
     $('redo').disabled = busy || !future.length;
     $('export').disabled = !data || busy;
@@ -68,7 +71,7 @@
   function restoreSelects() { if (data) { $('template').value = data.template_name; populateSamples(); $('sample').value = data.sample_name; controls(); } }
   async function load() {
     const t = $('template').value, s = $('sample').value;
-    data = null; pairs = []; savedState = '[]'; selected = null; history = []; future = []; board.replaceChildren(); renderList();
+    data = null; pairs = []; proposals = []; dismissed = new Set(); savedState = '[]'; selected = null; history = []; future = []; board.replaceChildren(); renderList(); renderPredictions();
     if (!t || !s) { status('No OCR scenes available.'); controls(); return; }
     busy = true; controls(); status('Loading OCR points and images…');
     try {
@@ -76,6 +79,8 @@
       const base = `/matches/api/image/${encodeURIComponent(t)}/${encodeURIComponent(s)}`;
       await Promise.all(['template','scene'].map(side => new Promise((resolve,reject) => { const image = new Image(); image.onload = resolve; image.onerror = () => reject(new Error(`Could not load ${side} image.`)); image.src = `${base}/${side}`; })));
       data = result; pairs = clone(result.pairs); savedState = JSON.stringify(pairs);
+      proposals = result.predictions?.pairs || [];
+      $('predictions-panel').open = proposals.length > 0;
       $('template-name').textContent = t; $('scene-name').textContent = s;
       for (const [index,side] of ['template','scene'].entries()) {
         const info = data[side], scale = Math.min(820/info.width, 780/info.height);
@@ -83,7 +88,7 @@
       }
       view = [0,0,1800,900]; render();
     } catch (error) { status(error.message, true); }
-    finally { busy = false; controls(); renderList(); }
+    finally { busy = false; controls(); renderList(); renderPredictions(); }
   }
   const position = (side,p) => ({x: layout[side].x + p.x*layout[side].scale, y:layout[side].y + p.y*layout[side].scale});
   function availability() {
@@ -99,6 +104,11 @@
     for (const side of ['template','scene']) { const l = layout[side]; svg('image',{href:`${base}/${side}`,x:l.x,y:l.y,width:data[side].width*l.scale,height:data[side].height*l.scale}); }
     const pointMap = {template:new Map(data.template.points.map(p=>[p.id,p])),scene:new Map(data.scene.points.map(p=>[p.id,p]))};
     pairs.forEach((pair,index) => { const a = position('template',pointMap.template.get(pair.template_id)), b = position('scene',pointMap.scene.get(pair.scene_id)); svg('path',{d:`M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`,stroke:color(index),class:'match-line',opacity:selected ? .2 : .75}); });
+    for (const pair of availablePredictions()) {
+      const a = position('template', pointMap.template.get(pair.template_id));
+      const b = position('scene', pointMap.scene.get(pair.scene_id));
+      svg('path', {d: `M${a.x},${a.y} L885,${a.y} L915,${b.y} L${b.x},${b.y}`, class: 'prediction-line'});
+    }
     const {used,counts} = availability();
     // Maintain point sizes in screen pixels while zooming into dense OCR regions.
     const unit = Math.max(view[2]/Math.max(board.clientWidth,1),view[3]/Math.max(board.clientHeight,1));
@@ -121,10 +131,10 @@
           const matchIndex = pairs.findIndex(pair=>pair[`${side}_id`]===p.id);
           svg('path',{d:`M${-2.8*unit},${-2.8*unit} L${2.8*unit},${2.8*unit} M${-2.8*unit},${2.8*unit} L${2.8*unit},${-2.8*unit}`,stroke:matched?color(matchIndex):'#737c88','stroke-width':1.4*unit,'pointer-events':'none'},g);
         }
-        if ($('labels').checked && available) { const text = svg('text',{x:5*unit,y:-5*unit,'font-size':10*unit,'stroke-width':2*unit},g); text.textContent=p.label; }
+        if ($('labels').checked) { const text = svg('text',{x:5*unit,y:-5*unit,'font-size':10*unit,'stroke-width':2*unit},g); text.textContent=p.label || '?'; }
       }
     }
-    renderList(); controls();
+    renderList(); renderPredictions(); controls();
     if (selected) { const opposite=selected.side==='template'?'scene':'template'; status(`Selected “${selected.label}” on ${selected.side} · ${counts[opposite].get(selected.label)||0} candidates. Click its counterpart to confirm, or press Esc.`); }
     else status(`${pairs.length} confirmed matches. Select a character on either image to see its available counterparts.`);
   }
@@ -150,12 +160,60 @@
       row.append(swatch,label,ids,remove);list.appendChild(row);
     });
   }
+  const predictionKey = pair => `${pair.template_id}:${pair.scene_id}`;
+  function availablePredictions() {
+    const usedTemplate = new Set(pairs.map(p => p.template_id));
+    const usedScene = new Set(pairs.map(p => p.scene_id));
+    return proposals.filter(p => !dismissed.has(predictionKey(p)) && !usedTemplate.has(p.template_id) && !usedScene.has(p.scene_id));
+  }
+  function acceptPredictions(items) {
+    if (busy || !items.length) return;
+    history.push(clone(pairs)); future = [];
+    pairs.push(...items.map(p => ({template_id: p.template_id, scene_id: p.scene_id})));
+    selected = null; render();
+    status(`${items.length} prediction${items.length === 1 ? '' : 's'} accepted. Review and Save to keep these matches.`);
+  }
+  function renderPredictions() {
+    const list = $('prediction-list'), available = availablePredictions();
+    list.replaceChildren(); $('prediction-count').textContent = available.length;
+    if (!available.length) {
+      const text = document.createElement('p'); text.className = 'empty';
+      text.textContent = proposals.length ? 'No unused predictions remain.' : 'Click Predict matches for suggestions.';
+      list.appendChild(text); return;
+    }
+    for (const pair of available) {
+      const row = document.createElement('div'); row.className = 'prediction-row';
+      const label = document.createElement('span');
+      const point = data.template.points.find(p => p.id === pair.template_id);
+      label.textContent = `${point.label} #${pair.template_id} ↔ #${pair.scene_id}`;
+      const accept = document.createElement('button'); accept.className = 'btn'; accept.textContent = 'Accept'; accept.disabled = busy;
+      accept.onclick = () => acceptPredictions([pair]);
+      const reject = document.createElement('button'); reject.className = 'btn'; reject.textContent = '×'; reject.title = 'Dismiss prediction'; reject.setAttribute('aria-label', `Dismiss prediction ${pair.template_id} to ${pair.scene_id}`); reject.disabled = busy;
+      reject.onclick = () => { dismissed.add(predictionKey(pair)); render(); };
+      row.append(label, accept, reject); list.appendChild(row);
+    }
+  }
+  $('accept-predictions').onclick = () => acceptPredictions(availablePredictions());
+  $('predict').onclick = async () => {
+    if (!data || busy) return;
+    busy = true; selected = null; controls(); renderList(); renderPredictions();
+    $('save-state').textContent = 'Predicting…';
+    status('Running object detection match predictions on the saved OCR points…');
+    try {
+      const result = await api(`/matches/api/predictions/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`, {method: 'POST'});
+      if (JSON.stringify(result.fingerprints) !== JSON.stringify(data.fingerprints)) throw new Error('Inputs changed. Reload this scene before using predictions.');
+      proposals = result.pairs; dismissed = new Set(); $('predictions-panel').open = true;
+      render();
+      status(`${availablePredictions().length} predictions available. Accept individually or all at once.${result.skipped ? ` ${result.skipped} incompatible predictions were excluded.` : ''}`);
+    } catch (error) { status(error.message, true); }
+    finally { busy = false; controls(); renderList(); renderPredictions(); }
+  };
   async function save() {
     if(!data||busy||!dirty()) return;
     busy=true;controls();renderList();$('save-state').textContent='Saving…';
     try { const saved=await api(endpoint(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pairs,revision:data.revision,fingerprints:data.fingerprints})}); data.revision=saved.revision;savedState=JSON.stringify(pairs);const item=catalog.find(t=>t.name===data.template_name).samples.find(s=>s.name===data.sample_name);item.matches=pairs.length;item.reviewed=true;populateSamples();$('sample').value=data.sample_name;status('Matches saved.'); }
     catch(error){status(error.message,true);}
-    finally{busy=false;controls();renderList();}
+    finally{busy=false;controls();renderList();renderPredictions();}
   }
   $('save').onclick=save;
   $('template').onchange=()=>{if(!acceptNavigation()){restoreSelects();return;}populateSamples();load();};

@@ -13,6 +13,11 @@
     <select id="sample" aria-label="Scene" hidden></select>
     <ul id="sample-list" class="sidebar-list" aria-label="Scenes"></ul>
     <p id="dataset-info" class="dataset-info"></p>
+    <details id="predictions-panel">
+      <summary>Predictions <span id="prediction-count">0</span></summary>
+      <div class="list-heading"><button id="accept-predictions" class="btn small" disabled>Accept all</button></div>
+      <div id="prediction-list"><p class="empty">Click Predict matches for suggestions.</p></div>
+    </details>
     <details id="confirmed-panel">
       <summary>Confirmed matches <span id="count">0</span></summary>
       <div class="list-heading"><button id="export" class="btn small" disabled>Export matches</button></div>
@@ -23,6 +28,7 @@
     <div class="toolbar">
       <select id="template" aria-label="Template" title="Template"></select>
       <span class="zoom-wrap"><label for="zoom-range">Zoom</label><input id="zoom-range" class="zoom-range" type="range" min="50" max="1000" value="100"><span id="zoom-label">100%</span></span>
+      <button id="predict" class="btn primary" disabled>Predict matches</button>
       <button id="save" class="save-btn" disabled>Save</button>
       <button id="deselect" class="mode-btn">Clear selection</button>
       <label class="check"><input type="checkbox" id="labels" checked> Characters</label>
@@ -38,7 +44,7 @@
       <div id="status" role="status" aria-live="polite">Loading datasets…</div>
       <div class="image-headings"><span>Template <strong id="template-name"></strong></span><span>Scene <strong id="scene-name"></strong></span></div>
       <svg id="board" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Template and scene OCR points. Select a point, then a matching point on the other image."></svg>
-      <div class="legend"><span><i class="dot"></i>Available</span><span><i class="dot selected"></i>Selected</span><span>× No available match</span><span><i class="line"></i>Confirmed match</span><span class="gesture">Scroll to zoom · Drag to pan · Esc to deselect</span></div>
+      <div class="legend"><span><i class="dot"></i>Available</span><span><i class="dot selected"></i>Selected</span><span>× No available match</span><span><i class="line"></i>Confirmed match</span><span><i class="line suggested"></i>Prediction</span><span class="gesture">Scroll to zoom · Drag to pan · Esc to deselect</span></div>
     </div>
   </section>
 </main><script src="/matches/assets/matches.js" defer></script>

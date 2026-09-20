@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, StrictInt
 from src.login_logic import get_user
 from src.pages.header import render_header, FAVICON_SCRIPT
 from src import matches_storage as store
+from src import matches_predictions as predictions
 
 ASSETS = Path(__file__).parent / 'pages' / 'ui_matches_assets'
 
@@ -37,6 +38,8 @@ class SaveMatches(BaseModel):
 def checked(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
+    except predictions.PredictionError as exc:
+        raise HTTPException(503, str(exc)) from exc
     except store.ConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     except FileNotFoundError as exc:
@@ -70,7 +73,9 @@ def catalog():
 
 @router.get('/api/pair/{template}/{sample}')
 def pair(template: str, sample: str):
-    return checked(store.load_pair, template, sample)
+    data = checked(store.load_pair, template, sample)
+    data['predictions'] = checked(predictions.cached, template, sample, data)
+    return data
 
 
 @router.put('/api/pair/{template}/{sample}')
@@ -88,3 +93,8 @@ def image(template: str, sample: str, side: str):
     data = checked(store.ocr_data, path)
     raw = checked(store.coordinate_image, path, data, template=side == 'template')
     return Response(raw, media_type='image/png', headers={'Cache-Control': 'no-cache'})
+
+
+@router.post('/api/predictions/{template}/{sample}')
+def predict(template: str, sample: str):
+    return checked(predictions.predict, template, sample)
