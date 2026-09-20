@@ -11,6 +11,17 @@
   const svg = (tag, attrs, parent = board) => { const el = document.createElementNS(ns, tag); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v); parent.appendChild(el); return el; };
   const endpoint = () => `/matches/api/pair/${encodeURIComponent(data.template_name)}/${encodeURIComponent(data.sample_name)}`;
   const clone = value => JSON.parse(JSON.stringify(value));
+  const EQUIVALENT = { o: '0', 0: '0', i: '1', l: '1', 1: '1' };
+  const canonical = label => {
+    const value = String(label ?? '').trim();
+    if (value.length !== 1) return value;
+    const lower = value.toLowerCase();
+    return EQUIVALENT[lower] ?? value;
+  };
+  const sameLabel = (left, right) => {
+    const a = canonical(left), b = canonical(right);
+    return !!a && a === b;
+  };
   async function api(url, options = {}) {
     const response = await fetch(url, options);
     if (!response.ok) { let message = `Request failed (${response.status})`; try { const body = await response.json(); message = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail); } catch {} throw new Error(message); }
@@ -94,7 +105,12 @@
   function availability() {
     const used = {template:new Set(pairs.map(p=>p.template_id)), scene:new Set(pairs.map(p=>p.scene_id))};
     const counts = {template:new Map(),scene:new Map()};
-    for (const side of ['template','scene']) for (const p of data[side].points) if (p.label && !used[side].has(p.id)) counts[side].set(p.label, (counts[side].get(p.label)||0)+1);
+    for (const side of ['template','scene']) {
+      for (const p of data[side].points) {
+        const key = canonical(p.label);
+        if (key && !used[side].has(p.id)) counts[side].set(key, (counts[side].get(key) || 0) + 1);
+      }
+    }
     return {used, counts};
   }
   function render() {
@@ -116,11 +132,11 @@
       const opposite = side === 'template' ? 'scene' : 'template';
       for (const p of data[side].points) {
         const matched = used[side].has(p.id);
-        const available = !!p.label && !matched && !!counts[opposite].get(p.label);
-        if (selected && selected.side !== side && (!available || selected.label !== p.label)) continue;
+        const available = !!canonical(p.label) && !matched && !!counts[opposite].get(canonical(p.label));
+        if (selected && selected.side !== side && (!available || !sameLabel(selected.label, p.label))) continue;
         const xy = position(side,p), active = selected?.side === side && selected.id === p.id;
         const g = svg('g',{transform:`translate(${xy.x} ${xy.y})`,class:available?'ocr-point':'unavailable','data-side':side,'data-id':p.id,'aria-label':`${side} ${p.label || 'unrecognized'} point ${p.id}${available ? '' : ', no available matches'}`});
-        const title = svg('title',{},g); title.textContent = `${p.label || 'Unrecognized'} · point ${p.id} · ${matched?'already matched':available?`${counts[opposite].get(p.label)} candidates`:'no available match'}`;
+        const title = svg('title',{},g); title.textContent = `${p.label || 'Unrecognized'} · point ${p.id} · ${matched?'already matched':available?`${counts[opposite].get(canonical(p.label))} candidates`:'no available match'}`;
         if (available) {
           g.setAttribute('role','button'); g.setAttribute('tabindex','0');
           svg('circle',{r:6*unit,class:'hit'},g);
@@ -135,13 +151,13 @@
       }
     }
     renderList(); renderPredictions(); controls();
-    if (selected) { const opposite=selected.side==='template'?'scene':'template'; status(`Selected “${selected.label}” on ${selected.side} · ${counts[opposite].get(selected.label)||0} candidates. Click its counterpart to confirm, or press Esc.`); }
+    if (selected) { const opposite=selected.side==='template'?'scene':'template'; status(`Selected “${selected.label}” on ${selected.side} · ${counts[opposite].get(canonical(selected.label))||0} candidates. Click its counterpart to confirm, or press Esc.`); }
     else status(`${pairs.length} confirmed matches. Select a character on either image to see its available counterparts.`);
   }
   function choose(side,p) {
     if(busy) return;
     if(selected && selected.side!==side) {
-      if(selected.label!==p.label) return;
+      if(!sameLabel(selected.label,p.label)) return;
       history.push(clone(pairs)); future=[];
       pairs.push(side==='scene'?{template_id:selected.id,scene_id:p.id}:{template_id:p.id,scene_id:selected.id}); selected=null;
     } else selected=selected?.side===side&&selected.id===p.id?null:{side,...p};

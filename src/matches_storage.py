@@ -21,9 +21,30 @@ MATCHES_ROOT = LOCAL_STORAGE_DIR / "matches"
 TEMPLATES_ROOT = LOCAL_STORAGE_DIR / "templates"
 _SAVE_LOCK = threading.Lock()
 
+_OCR_EQUIVALENCE_CANONICAL = {
+    'o': '0',
+    '0': '0',
+    'i': '1',
+    'l': '1',
+    '1': '1',
+}
+
 
 class ConflictError(ValueError):
     pass
+
+
+def canonical_label(label: str) -> str:
+    value = str(label or '').strip()
+    if len(value) != 1:
+        return value
+    return _OCR_EQUIVALENCE_CANONICAL.get(value.lower(), value)
+
+
+def labels_match(left: str, right: str) -> bool:
+    left_label = canonical_label(left)
+    right_label = canonical_label(right)
+    return bool(left_label) and left_label == right_label
 
 
 def folder(template: str, sample: str | None = None) -> Path:
@@ -186,7 +207,7 @@ def save_pair(template: str, sample: str, pairs: list[dict], revision: int, fing
             t, s = pair['template_id'], pair['scene_id']
             if t not in left or s not in right:
                 raise ValueError('Unknown OCR point')
-            if not left[t]['label'] or left[t]['label'] != right[s]['label']:
+            if not labels_match(left[t]['label'], right[s]['label']):
                 raise ValueError('Matches must have the same nonempty OCR character')
             if t in used_left or s in used_right:
                 raise ValueError('Each point can only belong to one match')

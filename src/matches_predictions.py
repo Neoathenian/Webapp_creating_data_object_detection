@@ -58,7 +58,7 @@ def map_predictions(records: list[dict], data: dict) -> tuple[list[dict], int]:
     for record in records:
         left = template.get(record.get('template_index'))
         right = scene.get(record.get('scene_index'))
-        if not left or not right or left['label'] != right['label']:
+        if not left or not right or not store.labels_match(left['label'], right['label']):
             continue
         if left['id'] in used_template or right['id'] in used_scene:
             continue

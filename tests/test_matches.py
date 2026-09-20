@@ -161,6 +161,27 @@ class MatchesTests(unittest.TestCase):
         self.assertEqual(rows[0]['error_count'], 1)
         self.assertEqual(len(rows[0]['samples']), 1)
 
+    def test_allows_equivalent_ocr_characters(self):
+        left = store.load_pair('CI', 'sample')
+        self.assertEqual(left['template']['points'][0]['label'], 'A')
+        self.assertEqual(left['scene']['points'][0]['label'], 'A')
+
+        template_doc = json.loads((self.template / 'ocr_character_overlay.json').read_text())
+        scene_doc = json.loads((self.scene / 'ocr_character_overlay.json').read_text())
+        template_doc['detections'][0]['text'] = 'o'
+        scene_doc['detections'][0]['text'] = '0'
+        template_doc['detections'][1]['text'] = 'i'
+        scene_doc['detections'][1]['text'] = 'l'
+        (self.template / 'ocr_character_overlay.json').write_text(json.dumps(template_doc))
+        (self.scene / 'ocr_character_overlay.json').write_text(json.dumps(scene_doc))
+
+        payload = self.payload([
+            {'template_id': 0, 'scene_id': 0},
+            {'template_id': 1, 'scene_id': 1},
+        ])
+        response = self.client.put('/matches/api/pair/CI/sample', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+
 
 if __name__ == '__main__':
     unittest.main()
